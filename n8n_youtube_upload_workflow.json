@@ -1,0 +1,449 @@
+{
+  "name": "Whiteboard Video Auto-Publisher to YouTube",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        380,
+        240
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        380,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Sheet1"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "key": "Status",
+              "value": "complete"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "read-sheet",
+      "name": "Read Complete Topics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        600,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BLaBtYAtbAJNS3MU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-batches",
+      "name": "Loop Through Videos",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        820,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Sheet1"
+        },
+        "rowNumber": "={{ $json.row_number }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "publishing"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-status-publishing",
+      "name": "Mark as Publishing",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BLaBtYAtbAJNS3MU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "q": "=name = '{{ $json.drive_link.split(\"/\").pop() }}' and trashed = false"
+      },
+      "id": "search-video",
+      "name": "Find Video File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1260,
+        320
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.id }}",
+        "options": {
+          "binaryPropertyName": "video_file"
+        }
+      },
+      "id": "download-video",
+      "name": "Download Video",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1480,
+        320
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "title": "={{ $node[\"Loop Through Videos\"].json.seo_title }}",
+        "description": "={{ $node[\"Loop Through Videos\"].json.seo_description }}",
+        "tags": "={{ $node[\"Loop Through Videos\"].json.seo_tags }}",
+        "categoryId": "27",
+        "privacyStatus": "private",
+        "binaryPropertyName": "video_file",
+        "options": {}
+      },
+      "id": "upload-youtube",
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "q": "=name = '{{ $node[\"Loop Through Videos\"].json.thumbnail_link.split(\"/\").pop() }}' and trashed = false"
+      },
+      "id": "search-thumbnail",
+      "name": "Find Thumbnail File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        320
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.id }}",
+        "options": {
+          "binaryPropertyName": "thumbnail_file"
+        }
+      },
+      "id": "download-thumbnail",
+      "name": "Download Thumbnail",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2140,
+        320
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "setThumbnail",
+        "videoId": "={{ $node[\"Upload to YouTube\"].json.id }}",
+        "binaryPropertyName": "thumbnail_file",
+        "options": {}
+      },
+      "id": "set-youtube-thumbnail",
+      "name": "Set YouTube Thumbnail",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        2360,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Sheet1"
+        },
+        "rowNumber": "={{ $node[\"Loop Through Videos\"].json.row_number }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "published",
+            "Video URL": "=https://www.youtube.com/watch?v={{ $node[\"Upload to YouTube\"].json.id }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "mark-published",
+      "name": "Mark as Published",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2580,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "BLaBtYAtbAJNS3MU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "loopKey": "Loop Through Videos"
+      },
+      "id": "loop-back",
+      "name": "Loop Back",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        2800,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Complete Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Complete Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Complete Topics": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Through Videos": {
+      "main": [
+        [
+          {
+            "node": "Mark as Publishing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Publishing": {
+      "main": [
+        [
+          {
+            "node": "Find Video File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Video File": {
+      "main": [
+        [
+          {
+            "node": "Download Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video": {
+      "main": [
+        [
+          {
+            "node": "Upload to YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to YouTube": {
+      "main": [
+        [
+          {
+            "node": "Find Thumbnail File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Thumbnail File": {
+      "main": [
+        [
+          {
+            "node": "Download Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Set YouTube Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set YouTube Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Mark as Published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Published": {
+      "main": [
+        [
+          {
+            "node": "Loop Back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Back": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
