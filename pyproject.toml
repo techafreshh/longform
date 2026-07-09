@@ -1,0 +1,35 @@
+[project]
+name = "longform-factory"
+version = "0.1.0"
+description = "Automated faceless longform whiteboard animation YouTube video pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=1.0.0",
+    "fish-audio-sdk>=0.1.0",
+    "openai>=1.0.0",
+    "gspread>=6.0.0",
+    "google-auth>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "Pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+colab = [
+    "openai-whisper>=20231117",
+    "ipywidgets>=8.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.4.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

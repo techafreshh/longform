@@ -1,0 +1,23 @@
+# Environment
+.env
+*.pyc
+__pycache__/
+*.egg-info/
+
+# Output files
+output/
+working/
+*.mp4
+*.wav
+*.mp3
+
+# Colab checkpoints
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
