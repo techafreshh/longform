@@ -17,6 +17,10 @@ COLUMNS = {
     "status": 6,
     "video_url": 7,
     "drive_link": 8,
+    "thumbnail_link": 9,
+    "seo_title": 10,
+    "seo_description": 11,
+    "seo_tags": 12,
 }
 
 
@@ -134,7 +138,8 @@ def create_sheet_template(sheet_id: Optional[str] = None):
     headers = [
         "Topic", "Niche", "Style", "Additional Prompt",
         "Target Length", "Status", "Video URL", "Drive Link",
+        "Thumbnail Link", "SEO Title", "SEO Description", "SEO Tags"
     ]
 
-    sheet.update('A1:H1', [headers])
+    sheet.update('A1:L1', [headers])
     print(f"✅ Sheet headers set: {headers}")

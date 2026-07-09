@@ -122,7 +122,7 @@ class ProjectPaths:
 
     @property
     def final_video(self) -> Path:
-        return self.output_dir / "final.mp4"
+        return self.output_dir / f"{self.topic_slug}.mp4"
 
     @property
     def thumbnail_dir(self) -> Path:

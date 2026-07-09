@@ -5,7 +5,7 @@ import base64
 from pathlib import Path
 from typing import Optional
 
-from .config import GOOGLE_API_KEY, STYLE_PRESETS, VIDEO_WIDTH, VIDEO_HEIGHT
+from .config import GOOGLE_API_KEY, STYLE_PRESETS, VIDEO_WIDTH, VIDEO_HEIGHT, slugify
 
 
 def generate_scenes(
@@ -255,7 +255,8 @@ def generate_thumbnail(
         if verbose:
             print(f"  🖼️ Generating thumbnail variant {i + 1}/{count}...")
 
-        thumb_path = output_dir / f"thumbnail_{i + 1:02d}.png"
+        topic_slug = slugify(topic)
+        thumb_path = output_dir / f"{topic_slug}_thumbnail_{i + 1:02d}.png"
 
         try:
             response = client.models.generate_content(
