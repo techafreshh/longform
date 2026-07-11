@@ -8,6 +8,44 @@ from typing import Optional
 from .config import GOOGLE_API_KEY, STYLE_PRESETS, VIDEO_WIDTH, VIDEO_HEIGHT, slugify
 
 
+def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> bytes:
+    """Helper to generate an image using Imagen 3 with a fallback to Gemini 2.5 Flash."""
+    # Try Imagen 3 first (official image generation API)
+    try:
+        result = client.models.generate_images(
+            model="imagen-3.0-generate-002",
+            prompt=prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="16:9",
+                output_mime_type="image/png",
+            )
+        )
+        if result and result.generated_images:
+            return result.generated_images[0].image.image_bytes
+    except Exception as e:
+        if verbose:
+            print(f"    ⚠️ Imagen 3 failed: {e}. Falling back to Gemini 2.5 Flash image modality...")
+
+    # Fallback: gemini-2.5-flash with IMAGE response modality
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE", "TEXT"],
+        ),
+    )
+
+    for part in response.candidates[0].content.parts:
+        if hasattr(part, 'inline_data') and part.inline_data:
+            image_data = part.inline_data.data
+            if isinstance(image_data, str):
+                return base64.b64decode(image_data)
+            return image_data
+
+    raise ValueError("No image data found in model response.")
+
+
 def generate_scenes(
     scenes: list[dict],
     style: str,
@@ -62,31 +100,9 @@ def generate_scenes(
         )
 
         try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE", "TEXT"],
-                ),
-            )
-
-            # Extract image from response
-            image_saved = False
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    image_data = part.inline_data.data
-                    if isinstance(image_data, str):
-                        image_data = base64.b64decode(image_data)
-
-                    with open(image_path, "wb") as f:
-                        f.write(image_data)
-                    image_saved = True
-                    break
-
-            if not image_saved:
-                print(f"  ⚠️ No image generated for scene {idx}, creating placeholder")
-                _create_placeholder(image_path, description, preset)
-
+            image_bytes = _generate_single_image(client, prompt, types, verbose=verbose)
+            with open(image_path, "wb") as f:
+                f.write(image_bytes)
         except Exception as e:
             print(f"  ⚠️ Image generation failed for scene {idx}: {e}")
             _create_placeholder(image_path, description, preset)
@@ -259,23 +275,9 @@ def generate_thumbnail(
         thumb_path = output_dir / f"{topic_slug}_thumbnail_{i + 1:02d}.png"
 
         try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=thumbnail_prompts[i],
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE", "TEXT"],
-                ),
-            )
-
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    image_data = part.inline_data.data
-                    if isinstance(image_data, str):
-                        image_data = base64.b64decode(image_data)
-                    with open(thumb_path, "wb") as f:
-                        f.write(image_data)
-                    break
-
+            image_bytes = _generate_single_image(client, thumbnail_prompts[i], types, verbose=verbose)
+            with open(thumb_path, "wb") as f:
+                f.write(image_bytes)
         except Exception as e:
             print(f"  ⚠️ Thumbnail generation failed for variant {i + 1}: {e}")
             continue
