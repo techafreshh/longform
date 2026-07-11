@@ -9,8 +9,8 @@ from .config import GOOGLE_API_KEY, STYLE_PRESETS, VIDEO_WIDTH, VIDEO_HEIGHT, sl
 
 
 def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> bytes:
-    """Helper to generate an image using Imagen 3 with a fallback to Gemini 2.5 Flash."""
-    # Try Imagen 3 first (official image generation API)
+    """Helper to generate an image using Imagen 3 with fallbacks to Pollinations.ai and Gemini 2.5 Flash."""
+    # 1. Try Imagen 3 first (official image generation API)
     try:
         result = client.models.generate_images(
             model="imagen-3.0-generate-002",
@@ -25,9 +25,27 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
             return result.generated_images[0].image.image_bytes
     except Exception as e:
         if verbose:
-            print(f"    ⚠️ Imagen 3 failed: {e}. Falling back to Gemini 2.5 Flash image modality...")
+            print(f"    ⚠️ Imagen 3 failed: {e}.")
 
-    # Fallback: gemini-2.5-flash with IMAGE response modality
+    # 2. Try Pollinations.ai (free, unlimited image generation fallback)
+    try:
+        if verbose:
+            print("    🎨 Trying Pollinations.ai (free keyless fallback)...")
+        import urllib.parse
+        import requests
+        encoded_prompt = urllib.parse.quote(prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={VIDEO_WIDTH}&height={VIDEO_HEIGHT}&nologo=true&private=true"
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            return response.content
+        else:
+            if verbose:
+                print(f"    ⚠️ Pollinations.ai returned status code {response.status_code}")
+    except Exception as pe:
+        if verbose:
+            print(f"    ⚠️ Pollinations.ai fallback failed: {pe}")
+
+    # 3. Fallback: gemini-2.5-flash with IMAGE response modality
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
