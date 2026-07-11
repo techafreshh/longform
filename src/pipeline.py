@@ -85,6 +85,7 @@ def run_stage_voice(
     paths: ProjectPaths,
     scenes_data: list[dict],
     tts_engine: str = "fish",
+    voice_model: str = "s2.1-pro-free",
     reference_audio: Optional[str] = None,
     force: bool = False,
     verbose: bool = True,
@@ -117,6 +118,7 @@ def run_stage_voice(
         voice_result = generate_voice_fish(
             scenes=scenes_data,
             output_dir=paths.audio_dir,
+            model=voice_model,
             verbose=verbose,
         )
     elif tts_engine.startswith("qwen"):
@@ -352,6 +354,7 @@ def run_pipeline(
 def continue_after_script_review(
     results: dict,
     tts_engine: str = "fish",
+    voice_model: str = "s2.1-pro-free",
     reference_audio: Optional[str] = None,
     bgm_path: Optional[str] = None,
     bgm_volume: float = 0.15,
@@ -376,6 +379,7 @@ def continue_after_script_review(
         paths=paths,
         scenes_data=scenes_data,
         tts_engine=tts_engine,
+        voice_model=voice_model,
         reference_audio=reference_audio,
         force=force,
         verbose=verbose,
