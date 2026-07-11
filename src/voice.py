@@ -84,6 +84,7 @@ def generate_voice_fish(
             "No voice ID set. Clone your voice at https://fish.audio "
             "and set FISH_VOICE_ID in your .env file."
         )
+    voice_id = str(voice_id).strip("'\" \t\r\n")
 
     client = FishAudio(api_key=FISH_API_KEY)
     output_dir.mkdir(parents=True, exist_ok=True)
