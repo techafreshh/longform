@@ -33,14 +33,27 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
             print("    🎨 Trying Pollinations.ai (free keyless fallback)...")
         import urllib.parse
         import requests
+        import random
+        import time
+        
         encoded_prompt = urllib.parse.quote(prompt)
-        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={VIDEO_WIDTH}&height={VIDEO_HEIGHT}&nologo=true&private=true"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            return response.content
-        else:
-            if verbose:
-                print(f"    ⚠️ Pollinations.ai returned status code {response.status_code}")
+        
+        for attempt in range(4):
+            seed = random.randint(1, 99999999)
+            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={VIDEO_WIDTH}&height={VIDEO_HEIGHT}&nologo=true&private=true&seed={seed}"
+            response = requests.get(url, timeout=35)
+            
+            if response.status_code == 200:
+                return response.content
+            elif response.status_code == 429:
+                wait_time = (attempt + 1) * 8
+                if verbose:
+                    print(f"      ⚠️ Pollinations.ai returned 429 (rate limited). Retrying in {wait_time}s... (attempt {attempt + 1}/4)")
+                time.sleep(wait_time)
+            else:
+                if verbose:
+                    print(f"      ⚠️ Pollinations.ai returned status code {response.status_code}")
+                break
     except Exception as pe:
         if verbose:
             print(f"    ⚠️ Pollinations.ai fallback failed: {pe}")
@@ -129,7 +142,7 @@ def generate_scenes(
 
         # Rate limiting — be gentle with the API
         if idx < len(scenes):
-            time.sleep(2)
+            time.sleep(3)
 
     if verbose:
         print(f"✅ Generated {len(generated_paths)} scene images")
