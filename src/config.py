@@ -22,6 +22,11 @@ PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 
+# Vertex AI settings
+USE_VERTEX = os.getenv("USE_VERTEX", "false").lower() == "true"
+GCP_PROJECT = os.getenv("GCP_PROJECT", "")
+GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
+
 
 # ---------------------------------------------------------------------------
 # Visual Style Presets
@@ -208,3 +213,21 @@ def slugify(text: str) -> str:
     text = re.sub(r'[\s_]+', '-', text)
     text = re.sub(r'-+', '-', text)
     return text[:80].strip('-')
+
+
+def get_genai_client():
+    """Initialize and return the genai.Client based on configuration (AI Studio or Vertex AI)."""
+    from google import genai
+    
+    if USE_VERTEX:
+        if not GCP_PROJECT:
+            raise ValueError("GCP_PROJECT is required when USE_VERTEX=True")
+        return genai.Client(
+            vertexai=True,
+            project=GCP_PROJECT,
+            location=GCP_LOCATION,
+        )
+    else:
+        if not GOOGLE_API_KEY:
+            raise ValueError("GOOGLE_API_KEY is not set.")
+        return genai.Client(api_key=GOOGLE_API_KEY)

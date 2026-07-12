@@ -8,14 +8,14 @@ from typing import Optional
 from google import genai
 from google.genai import types
 
-from .config import GOOGLE_API_KEY, RESEARCH_SYSTEM_PROMPT
+from .config import GOOGLE_API_KEY, RESEARCH_SYSTEM_PROMPT, get_genai_client, USE_VERTEX
 
 
 def _get_client() -> genai.Client:
     """Initialize and return a Gemini client."""
-    if not GOOGLE_API_KEY:
+    if not USE_VERTEX and not GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY is not set. Add it to your .env file.")
-    return genai.Client(api_key=GOOGLE_API_KEY)
+    return get_genai_client()
 
 
 def research_topic(

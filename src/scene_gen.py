@@ -5,7 +5,7 @@ import base64
 from pathlib import Path
 from typing import Optional
 
-from .config import GOOGLE_API_KEY, STYLE_PRESETS, VIDEO_WIDTH, VIDEO_HEIGHT, slugify
+from .config import GOOGLE_API_KEY, STYLE_PRESETS, VIDEO_WIDTH, VIDEO_HEIGHT, slugify, get_genai_client, USE_VERTEX
 
 
 def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> bytes:
@@ -100,14 +100,14 @@ def generate_scenes(
     from google import genai
     from google.genai import types
 
-    if not GOOGLE_API_KEY:
+    if not USE_VERTEX and not GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY is not set. Add it to your .env file.")
 
     preset = STYLE_PRESETS.get(style)
     if not preset:
         raise ValueError(f"Unknown style: {style}. Available: {list(STYLE_PRESETS.keys())}")
 
-    client = genai.Client(api_key=GOOGLE_API_KEY)
+    client = get_genai_client()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     generated_paths = []
@@ -264,10 +264,10 @@ def generate_thumbnail(
     from google import genai
     from google.genai import types
 
-    if not GOOGLE_API_KEY:
+    if not USE_VERTEX and not GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY is not set.")
 
-    client = genai.Client(api_key=GOOGLE_API_KEY)
+    client = get_genai_client()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     thumbnails = []
