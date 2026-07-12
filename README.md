@@ -24,16 +24,33 @@ Automated faceless whiteboard animation YouTube video pipeline. Goes from topic 
 
 ## Setup
 
-### API Keys Needed
+### API Keys & Configuration
 
-| Key | Required | Get from |
-|-----|----------|----------|
-| `GOOGLE_API_KEY` | ✅ | [Google AI Studio](https://aistudio.google.com/apikey) |
-| `OPENROUTER_API_KEY` | ✅ | [OpenRouter](https://openrouter.ai/keys) |
-| `FISH_API_KEY` | ✅ | [Fish Audio](https://fish.audio/app/api-keys/) |
-| `FISH_VOICE_ID` | ✅ | Created after voice cloning |
-| `PEXELS_API_KEY` | Optional | [Pexels](https://www.pexels.com/api/) |
-| `GOOGLE_SHEET_ID` | Optional | Your Google Sheet URL |
+| Key / Variable | Required | Description | Get from |
+|---|---|---|---|
+| `GOOGLE_API_KEY` | ✅ (unless using Vertex) | Google AI Studio Key | [Google AI Studio](https://aistudio.google.com/apikey) |
+| `OPENROUTER_API_KEY` | ✅ | OpenRouter Key | [OpenRouter](https://openrouter.ai/keys) |
+| `FISH_API_KEY` | ✅ | Fish Audio API Key | [Fish Audio](https://fish.audio/app/api-keys/) |
+| `FISH_VOICE_ID` | ✅ | Created after voice cloning | Fish Audio Console |
+| `PEXELS_API_KEY` | Optional | Pexels API Key | [Pexels](https://www.pexels.com/api/) |
+| `GOOGLE_SHEET_ID` | Optional | Your Google Sheet ID | Google Sheet URL |
+| `USE_VERTEX` | Optional | Set to `true` to use GCP Vertex AI | Toggle |
+| `GCP_PROJECT` | Optional | Your GCP Project ID (for Vertex AI) | Google Cloud Console |
+| `GCP_LOCATION` | Optional | GCP Region (defaults to `us-central1`) | Google Cloud Console |
+
+### Vertex AI Integration (Using Google Cloud $300 Credits)
+
+If you have a Google Cloud account with $300 welcome credits, you can use **Vertex AI** for image and research generation to avoid spending real money on AI Studio prepay accounts:
+
+1. Enable the **Vertex AI API** in your Google Cloud Console.
+2. In Google Colab Secrets (or manual configs), set:
+   * `USE_VERTEX` to `true`
+   * `GCP_PROJECT` to your GCP Project ID
+   * `GCP_LOCATION` to `us-central1` (or your preferred region)
+3. Run the Colab setup cell, approving the `auth.authenticate_user()` OAuth prompt. **Make sure to log in with the Google Account that holds the GCP project and credits.**
+
+### Free Image Fallback
+If you choose to stay on the free tier and run into Gemini AI Studio limits or depleted balance errors, the pipeline will **automatically fall back to Pollinations.ai** to generate images for free (with built-in exponential retry backoff and randomized seeding).
 
 ### Google Sheet Setup
 
