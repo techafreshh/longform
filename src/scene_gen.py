@@ -24,6 +24,29 @@ _discovered_vertex_models = None
 _discovered_aistudio_models = None
 
 
+def _get_model_cost(model_name: str) -> float:
+    """Return estimated cost per image generation for a given model."""
+    name_lower = model_name.lower()
+    if "ultra" in name_lower:
+        return 0.06
+    elif "fast" in name_lower or "lite" in name_lower:
+        return 0.02
+    elif "pro" in name_lower:
+        return 0.06
+    elif "gemini-3.1-flash-image" in name_lower or "gemini-2.5-flash-image" in name_lower:
+        return 0.03
+    elif "imagen-3.0-generate" in name_lower:
+        return 0.04
+    elif "imagen-2.0" in name_lower:
+        return 0.02
+    # Default fallbacks
+    if "gemini" in name_lower:
+        return 0.03
+    if "imagen" in name_lower:
+        return 0.04
+    return 0.00
+
+
 def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) -> list[str]:
     """Helper to query and cache available Imagen models for a specific client type."""
     global _discovered_vertex_models, _discovered_aistudio_models
@@ -60,8 +83,8 @@ def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) 
     return cache
 
 
-def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> bytes:
-    """Helper to generate an image using Imagen 3 with fallbacks (AI Studio / Vertex)."""
+def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> tuple[bytes, str, str]:
+    """Helper to generate an image using Imagen 3 with fallbacks (AI Studio / Vertex). Returns (image_bytes, model_name, client_type)."""
     # Check if the primary client is Vertex AI
     primary_is_vertex = getattr(client, '_vertexai', False) or (hasattr(client, 'config') and getattr(client.config, 'vertexai', False))
 
@@ -128,7 +151,7 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
                 )
             )
             if result and result.generated_images:
-                return result.generated_images[0].image.image_bytes
+                return result.generated_images[0].image.image_bytes, current_model, "Vertex AI" if primary_is_vertex else "AI Studio"
         except Exception as e:
             if verbose:
                 err_msg = str(e)
@@ -199,7 +222,7 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
                     )
                 )
                 if result and result.generated_images:
-                    return result.generated_images[0].image.image_bytes
+                    return result.generated_images[0].image.image_bytes, current_model, "Vertex AI" if alt_is_vertex else "AI Studio"
             except Exception as e:
                 if verbose:
                     print(f"      ⚠️ Alternative client Imagen ({current_model}) failed: {e}")
@@ -245,6 +268,7 @@ def generate_scenes(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     generated_paths = []
+    report_records = []
 
     for scene in scenes:
         idx = scene["index"]
@@ -257,6 +281,14 @@ def generate_scenes(
                 if verbose:
                     print(f"  ℹ️ Scene {idx} image already exists. Skipping.")
                 generated_paths.append(image_path)
+                report_records.append({
+                    "scene_index": idx,
+                    "description": description,
+                    "status": "Skipped (Exists)",
+                    "model": "N/A",
+                    "client": "N/A",
+                    "cost": 0.00
+                })
                 continue
 
         if verbose:
@@ -272,18 +304,52 @@ def generate_scenes(
         )
 
         try:
-            image_bytes = _generate_single_image(client, prompt, types, verbose=verbose)
+            image_bytes, model_name, client_type = _generate_single_image(client, prompt, types, verbose=verbose)
             with open(image_path, "wb") as f:
                 f.write(image_bytes)
+            cost = _get_model_cost(model_name)
+            report_records.append({
+                "scene_index": idx,
+                "description": description,
+                "status": "Success",
+                "model": model_name,
+                "client": client_type,
+                "cost": cost
+            })
         except Exception as e:
             print(f"  ⚠️ Image generation failed for scene {idx}: {e}")
             _create_placeholder(image_path, description, preset)
+            report_records.append({
+                "scene_index": idx,
+                "description": description,
+                "status": "Failed (Placeholder)",
+                "model": "Placeholder",
+                "client": "Local",
+                "cost": 0.00
+            })
 
         generated_paths.append(image_path)
 
         # Rate limiting — be gentle with the API
         if idx < len(scenes):
             time.sleep(3)
+
+    # Write report to CSV
+    import csv
+    report_path = output_dir / "image_generation_report.csv"
+    try:
+        with open(report_path, "w", newline="", encoding="utf-8") as csvfile:
+            fieldnames = ["scene_index", "description", "status", "model", "client", "cost"]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for record in report_records:
+                writer.writerow(record)
+        if verbose:
+            print(f"\n📊 Image generation report saved to: {report_path}")
+            total_cost = sum(r["cost"] for r in report_records)
+            print(f"💰 Total Estimated Cost: ${total_cost:.4f}")
+    except Exception as cre:
+        print(f"⚠️ Could not write report CSV: {cre}")
 
     if verbose:
         print(f"✅ Generated {len(generated_paths)} scene images")
@@ -447,7 +513,7 @@ def generate_thumbnail(
         thumb_path = output_dir / f"{topic_slug}_thumbnail_{i + 1:02d}.png"
 
         try:
-            image_bytes = _generate_single_image(client, thumbnail_prompts[i], types, verbose=verbose)
+            image_bytes, _, _ = _generate_single_image(client, thumbnail_prompts[i], types, verbose=verbose)
             with open(thumb_path, "wb") as f:
                 f.write(image_bytes)
         except Exception as e:
