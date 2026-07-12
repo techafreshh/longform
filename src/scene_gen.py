@@ -47,7 +47,7 @@ def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) 
         models = client.models.list()
         for model in models:
             name = model.name
-            if "imagen" in name.lower():
+            if "imagen" in name.lower() or name.lower().endswith("-image") or name.lower().endswith("-image-preview"):
                 if name not in cache:
                     cache.append(name)
                 short_name = name.split("/")[-1]
@@ -85,6 +85,10 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
 
     # 3. Add standard fallback models to ensure we try all potential options
     standard_fallbacks = [
+        "gemini-3.1-flash-image",
+        "gemini-3-pro-image",
+        "gemini-3.1-flash-lite-image",
+        "gemini-2.5-flash-image",
         "imagen-4.0-generate-001",
         "imagen-4.0-ultra-generate-001",
         "imagen-4.0-fast-generate-001",
