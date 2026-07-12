@@ -20,12 +20,50 @@ from .config import (
 
 
 # Module-level cache for discovered models to avoid listing on every single image generation call
-_discovered_imagen_models = None
+_discovered_vertex_models = None
+_discovered_aistudio_models = None
+
+
+def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) -> list[str]:
+    """Helper to query and cache available Imagen models for a specific client type."""
+    global _discovered_vertex_models, _discovered_aistudio_models
+    
+    if is_vertex:
+        if _discovered_vertex_models is not None:
+            return _discovered_vertex_models
+        _discovered_vertex_models = []
+        cache = _discovered_vertex_models
+        label = "Vertex AI"
+    else:
+        if _discovered_aistudio_models is not None:
+            return _discovered_aistudio_models
+        _discovered_aistudio_models = []
+        cache = _discovered_aistudio_models
+        label = "AI Studio"
+
+    try:
+        if verbose:
+            print(f"    🔍 Querying available Imagen models from {label}...")
+        models = client.models.list()
+        for model in models:
+            name = model.name
+            if "imagen" in name.lower():
+                if name not in cache:
+                    cache.append(name)
+                short_name = name.split("/")[-1]
+                if short_name not in cache:
+                    cache.append(short_name)
+    except Exception as e:
+        if verbose:
+            print(f"    ⚠️ Could not query models dynamically from {label}: {e}")
+            
+    return cache
 
 
 def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> bytes:
-    """Helper to generate an image using Imagen 3 with fallbacks (AI Studio / Vertex / Pollinations.ai)."""
-    global _discovered_imagen_models
+    """Helper to generate an image using Imagen 3 with fallbacks (AI Studio / Vertex)."""
+    # Check if the primary client is Vertex AI
+    primary_is_vertex = getattr(client, '_vertexai', False) or (hasattr(client, 'config') and getattr(client.config, 'vertexai', False))
 
     # Initialize candidate models list
     model_candidates = []
@@ -34,29 +72,14 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
     if IMAGEN_MODEL:
         model_candidates.append(IMAGEN_MODEL)
 
-    # 2. Check if we have already queried available models, otherwise do it once
-    if _discovered_imagen_models is None:
-        _discovered_imagen_models = []
-        try:
-            if verbose:
-                print("    🔍 Querying available models from API...")
-            models = client.models.list()
-            for model in models:
-                name = model.name
-                if "imagen" in name.lower():
-                    # Keep the model name itself (e.g. publishers/google/models/imagen-3.0-generate-002)
-                    if name not in _discovered_imagen_models:
-                        _discovered_imagen_models.append(name)
-                    # Also try the short name (e.g. imagen-3.0-generate-002)
-                    short_name = name.split("/")[-1]
-                    if short_name not in _discovered_imagen_models:
-                        _discovered_imagen_models.append(short_name)
-        except Exception as e:
-            if verbose:
-                print(f"    ⚠️ Could not query models dynamically: {e}")
-
-    # Add dynamically discovered models
-    for model_name in _discovered_imagen_models:
+    # 2. Add dynamically queried models for the primary client
+    discovered_primary = _get_available_imagen_models(client, primary_is_vertex, verbose=verbose)
+    for model_name in discovered_primary:
+        # For Vertex, try to keep full path if discovered
+        if primary_is_vertex and not model_name.startswith("publishers/"):
+            fp = f"publishers/google/models/{model_name}"
+            if fp not in model_candidates:
+                model_candidates.append(fp)
         if model_name not in model_candidates:
             model_candidates.append(model_name)
 
@@ -71,7 +94,7 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
     for fb in standard_fallbacks:
         if fb not in model_candidates:
             model_candidates.append(fb)
-        if USE_VERTEX:
+        if primary_is_vertex:
             full_path = f"publishers/google/models/{fb}"
             if full_path not in model_candidates:
                 model_candidates.append(full_path)
@@ -82,11 +105,15 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
 
     # 4. Try Imagen models using the primary client
     for model_name in model_candidates:
+        current_model = model_name
+        # If client is AI Studio, we must strip the "publishers/google/models/" prefix
+        if not primary_is_vertex and "/" in current_model:
+            current_model = current_model.split("/")[-1]
         try:
             if verbose:
-                print(f"    🎨 Trying Imagen model {model_name} on primary client...")
+                print(f"    🎨 Trying Imagen model {current_model} on primary client...")
             result = client.models.generate_images(
-                model=model_name,
+                model=current_model,
                 prompt=prompt,
                 config=types.GenerateImagesConfig(
                     number_of_images=1,
@@ -100,22 +127,21 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
             if verbose:
                 err_msg = str(e)
                 if "404" in err_msg or "not found" in err_msg.lower() or "access" in err_msg.lower():
-                    print(f"    ⚠️ Imagen 3 ({model_name}) not available on primary client: {err_msg}.")
+                    print(f"    ⚠️ Imagen 3 ({current_model}) not available on primary client: {err_msg}.")
                 else:
-                    print(f"    ⚠️ Imagen 3 ({model_name}) failed on primary client: {e}.")
+                    print(f"    ⚠️ Imagen 3 ({current_model}) failed on primary client: {e}.")
 
     # 5. Try alternative client fallback (if Vertex failed and AI Studio credentials exist, or vice versa)
     alt_client = None
+    alt_is_vertex = not primary_is_vertex
     try:
         from google import genai
-        # Check if the primary client was using Vertex
-        is_vertex = getattr(client, '_vertexai', False) or (hasattr(client, 'config') and getattr(client.config, 'vertexai', False))
         
-        if is_vertex and GOOGLE_API_KEY:
+        if primary_is_vertex and GOOGLE_API_KEY:
             if verbose:
                 print("    🎨 Vertex AI failed. Trying Google AI Studio (API key fallback)...")
             alt_client = genai.Client(api_key=GOOGLE_API_KEY)
-        elif not is_vertex and GCP_PROJECT:
+        elif not primary_is_vertex and GCP_PROJECT:
             if verbose:
                 print("    🎨 AI Studio failed. Trying Vertex AI fallback...")
             alt_client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_LOCATION)
@@ -124,10 +150,35 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
             print(f"    ⚠️ Alternative client initialization failed: {ce}")
 
     if alt_client:
-        for model_name in model_candidates:
+        # Build candidates for the alternative client (querying dynamically as well)
+        alt_model_candidates = []
+        if IMAGEN_MODEL:
+            alt_model_candidates.append(IMAGEN_MODEL)
+            
+        discovered_alt = _get_available_imagen_models(alt_client, alt_is_vertex, verbose=verbose)
+        for model_name in discovered_alt:
+            if alt_is_vertex and not model_name.startswith("publishers/"):
+                fp = f"publishers/google/models/{model_name}"
+                if fp not in alt_model_candidates:
+                    alt_model_candidates.append(fp)
+            if model_name not in alt_model_candidates:
+                alt_model_candidates.append(model_name)
+                
+        for fb in standard_fallbacks:
+            if fb not in alt_model_candidates:
+                alt_model_candidates.append(fb)
+            if alt_is_vertex:
+                full_path = f"publishers/google/models/{fb}"
+                if full_path not in alt_model_candidates:
+                    alt_model_candidates.append(full_path)
+                    
+        # Remove duplicates while preserving order
+        seen_alt = set()
+        alt_model_candidates = [x for x in alt_model_candidates if not (x in seen_alt or seen_alt.add(x))]
+
+        for model_name in alt_model_candidates:
             current_model = model_name
-            # For AI Studio, we don't want "publishers/google/models/" prefix
-            if not getattr(alt_client, '_vertexai', False) and "/" in current_model:
+            if not alt_is_vertex and "/" in current_model:
                 current_model = current_model.split("/")[-1]
             try:
                 if verbose:
@@ -146,6 +197,7 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
             except Exception as e:
                 if verbose:
                     print(f"      ⚠️ Alternative client Imagen ({current_model}) failed: {e}")
+
     raise ValueError("No image generation models succeeded.")
 
 
