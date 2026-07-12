@@ -12,8 +12,9 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
     """Helper to generate an image using Imagen 3 with fallbacks to Pollinations.ai and Gemini 2.5 Flash."""
     # 1. Try Imagen 3 first (official image generation API)
     try:
+        model_name = "imagen-3.0-generate-001" if USE_VERTEX else "imagen-3.0-generate-002"
         result = client.models.generate_images(
-            model="imagen-3.0-generate-002",
+            model=model_name,
             prompt=prompt,
             config=types.GenerateImagesConfig(
                 number_of_images=1,
