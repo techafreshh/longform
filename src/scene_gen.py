@@ -109,8 +109,7 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
     # 4. Try Imagen models using the primary client
     for model_name in model_candidates:
         current_model = model_name
-        # If client is AI Studio, we must strip the "publishers/google/models/" prefix
-        if not primary_is_vertex and "/" in current_model:
+        if not primary_is_vertex and "publishers/" in current_model:
             current_model = current_model.split("/")[-1]
         try:
             if verbose:
@@ -181,7 +180,7 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
 
         for model_name in alt_model_candidates:
             current_model = model_name
-            if not alt_is_vertex and "/" in current_model:
+            if not alt_is_vertex and "publishers/" in current_model:
                 current_model = current_model.split("/")[-1]
             try:
                 if verbose:
