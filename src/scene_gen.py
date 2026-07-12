@@ -82,6 +82,8 @@ def generate_scenes(
     style: str,
     output_dir: Path,
     reference_images: Optional[list[str]] = None,
+    force: bool = False,
+    force_scenes: Optional[list[int]] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """
@@ -92,6 +94,8 @@ def generate_scenes(
         style: Style preset key ("color_whiteboard" or "chalkboard").
         output_dir: Directory to save generated images.
         reference_images: Optional list of paths to style reference images.
+        force: Force generate all scene images.
+        force_scenes: Specific scene indices to force generate.
         verbose: Print progress.
 
     Returns:
@@ -115,11 +119,18 @@ def generate_scenes(
     for scene in scenes:
         idx = scene["index"]
         description = scene["description"]
+        image_path = output_dir / f"scene_{idx:02d}.png"
+
+        # Check if we should skip this specific image
+        if image_path.exists() and not force:
+            if not force_scenes or idx not in force_scenes:
+                if verbose:
+                    print(f"  ℹ️ Scene {idx} image already exists. Skipping.")
+                generated_paths.append(image_path)
+                continue
 
         if verbose:
             print(f"  🎨 Generating scene {idx}/{len(scenes)}: {description[:60]}...")
-
-        image_path = output_dir / f"scene_{idx:02d}.png"
 
         # Build the prompt with style prefix
         prompt = (
