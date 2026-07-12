@@ -47,120 +47,180 @@ def _get_model_cost(model_name: str) -> float:
     return 0.00
 
 
-def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) -> list[str]:
-    """Helper to query and cache available Imagen models for a specific client type."""
+def _is_gemini_model(model_name: str) -> bool:
+    """Check if a model name refers to a Gemini model (uses generate_content) vs Imagen (uses generate_images)."""
+    base = model_name.split("/")[-1].lower()
+    return base.startswith("gemini")
+
+
+def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) -> dict[str, list[str]]:
+    """Helper to query and cache available image generation models.
+    
+    Returns a dict with two keys:
+        'gemini': list of Gemini model names (use generate_content)
+        'imagen': list of Imagen model names (use generate_images)
+    """
     global _discovered_vertex_models, _discovered_aistudio_models
     
-    if is_vertex:
-        if _discovered_vertex_models is not None:
-            return _discovered_vertex_models
-        _discovered_vertex_models = []
-        cache = _discovered_vertex_models
-        label = "Vertex AI"
-    else:
-        if _discovered_aistudio_models is not None:
-            return _discovered_aistudio_models
-        _discovered_aistudio_models = []
-        cache = _discovered_aistudio_models
-        label = "AI Studio"
+    cache_key = "_discovered_vertex_models" if is_vertex else "_discovered_aistudio_models"
+    existing = _discovered_vertex_models if is_vertex else _discovered_aistudio_models
+    
+    if existing is not None:
+        return existing
+    
+    result = {"gemini": [], "imagen": []}
+    label = "Vertex AI" if is_vertex else "AI Studio"
 
     try:
         if verbose:
-            print(f"    🔍 Querying available Imagen models from {label}...")
+            print(f"    🔍 Querying available image generation models from {label}...")
         models = client.models.list()
         for model in models:
             name = model.name
-            if "imagen" in name.lower() or name.lower().endswith("-image") or name.lower().endswith("-image-preview"):
-                if name not in cache:
-                    cache.append(name)
-                short_name = name.split("/")[-1]
-                if short_name not in cache:
-                    cache.append(short_name)
+            name_lower = name.lower()
+            # Match image-capable models
+            is_image_model = (
+                "imagen" in name_lower
+                or name_lower.endswith("-image")
+                or name_lower.endswith("-image-preview")
+            )
+            if not is_image_model:
+                continue
+                
+            short_name = name.split("/")[-1]
+            bucket = "gemini" if _is_gemini_model(name) else "imagen"
+            
+            if short_name not in result[bucket]:
+                result[bucket].append(short_name)
     except Exception as e:
         if verbose:
             print(f"    ⚠️ Could not query models dynamically from {label}: {e}")
+    
+    # Cache it
+    if is_vertex:
+        _discovered_vertex_models = result
+    else:
+        _discovered_aistudio_models = result
             
-    return cache
+    return result
+
+
+def _try_gemini_image_generation(client, model_name: str, prompt: str, types, verbose: bool = True) -> Optional[bytes]:
+    """Try generating an image using Gemini's generate_content with IMAGE response modality."""
+    try:
+        if verbose:
+            print(f"    🎨 Trying Gemini model {model_name} (generate_content)...")
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+            )
+        )
+        # Extract image bytes from the response
+        if response and response.candidates:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'inline_data') and part.inline_data:
+                    return part.inline_data.data
+    except Exception as e:
+        if verbose:
+            err_msg = str(e)
+            if "404" in err_msg or "not found" in err_msg.lower():
+                print(f"    ⚠️ Gemini ({model_name}) not available: {err_msg[:200]}.")
+            else:
+                print(f"    ⚠️ Gemini ({model_name}) failed: {err_msg[:200]}.")
+    return None
+
+
+def _try_imagen_generation(client, model_name: str, prompt: str, types, verbose: bool = True) -> Optional[bytes]:
+    """Try generating an image using Imagen's generate_images endpoint."""
+    try:
+        if verbose:
+            print(f"    🎨 Trying Imagen model {model_name} (generate_images)...")
+        result = client.models.generate_images(
+            model=model_name,
+            prompt=prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="16:9",
+                output_mime_type="image/png",
+            )
+        )
+        if result and result.generated_images:
+            return result.generated_images[0].image.image_bytes
+    except Exception as e:
+        if verbose:
+            err_msg = str(e)
+            if "404" in err_msg or "not found" in err_msg.lower():
+                print(f"    ⚠️ Imagen ({model_name}) not available: {err_msg[:200]}.")
+            else:
+                print(f"    ⚠️ Imagen ({model_name}) failed: {err_msg[:200]}.")
+    return None
 
 
 def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> tuple[bytes, str, str]:
-    """Helper to generate an image using Imagen 3 with fallbacks (AI Studio / Vertex). Returns (image_bytes, model_name, client_type)."""
+    """Generate an image with smart fallbacks across Gemini and Imagen models.
+    
+    Strategy:
+        1. Try Gemini models via generate_content (most widely available)
+        2. Try Imagen models via generate_images (requires specific API access)
+        3. Fall back to alternative client (Vertex ↔ AI Studio) and repeat
+    
+    Returns (image_bytes, model_name, client_type).
+    """
     # Check if the primary client is Vertex AI
     primary_is_vertex = getattr(client, '_vertexai', False) or (hasattr(client, 'config') and getattr(client.config, 'vertexai', False))
 
-    # Initialize candidate models list
-    model_candidates = []
-
-    # 1. Start with the configured model
-    if IMAGEN_MODEL:
-        model_candidates.append(IMAGEN_MODEL)
-
-    # 2. Add dynamically queried models for the primary client
-    discovered_primary = _get_available_imagen_models(client, primary_is_vertex, verbose=verbose)
-    for model_name in discovered_primary:
-        # For Vertex, try to keep full path if discovered
-        if primary_is_vertex and not model_name.startswith("publishers/"):
-            fp = f"publishers/google/models/{model_name}"
-            if fp not in model_candidates:
-                model_candidates.append(fp)
-        if model_name not in model_candidates:
-            model_candidates.append(model_name)
-
-    # 3. Add standard fallback models to ensure we try all potential options
-    standard_fallbacks = [
-        "gemini-3.1-flash-image",
-        "gemini-3-pro-image",
-        "gemini-3.1-flash-lite-image",
-        "gemini-2.5-flash-image",
-        "imagen-4.0-generate-001",
-        "imagen-4.0-ultra-generate-001",
-        "imagen-4.0-fast-generate-001",
-        "imagen-3.0-generate-002",
-        "imagen-3.0-generate-001",
-        "imagen-3.0-fast-generate-001",
-        "imagen-3.0-capability-001",
-        "imagen-2.0-generate-002",
+    # --- Build ordered model lists ---
+    # Gemini models: use generate_content with response_modalities=["IMAGE"]
+    # These are the confirmed-available image generation models on the project.
+    gemini_fallbacks = [
+        "gemini-3.1-flash-image",          # Latest stable flash image gen
+        "gemini-3-pro-image",              # Pro quality image gen
+        "gemini-3.1-flash-lite-image",     # Fast/cheap option
+        "gemini-2.5-flash-image",          # Older but reliable
+        "gemini-3.1-flash-image-preview",  # Preview variant
+        "gemini-3-pro-image-preview",      # Preview variant
     ]
-    for fb in standard_fallbacks:
-        if fb not in model_candidates:
-            model_candidates.append(fb)
-        if primary_is_vertex:
-            full_path = f"publishers/google/models/{fb}"
-            if full_path not in model_candidates:
-                model_candidates.append(full_path)
+    
+    # Imagen models: use generate_images endpoint
+    # NOTE: No imagen-* models are currently available on this project.
+    # Kept as fallback in case they are enabled in the future.
+    imagen_fallbacks = []
 
-    # Remove duplicates while preserving order
-    seen = set()
-    model_candidates = [x for x in model_candidates if not (x in seen or seen.add(x))]
+    # If the user configured a specific model, put it first in the right list
+    if IMAGEN_MODEL:
+        if _is_gemini_model(IMAGEN_MODEL):
+            if IMAGEN_MODEL not in gemini_fallbacks:
+                gemini_fallbacks.insert(0, IMAGEN_MODEL)
+        else:
+            if IMAGEN_MODEL not in imagen_fallbacks:
+                imagen_fallbacks.insert(0, IMAGEN_MODEL)
 
-    # 4. Try Imagen models using the primary client
-    for model_name in model_candidates:
-        current_model = model_name
-        if not primary_is_vertex and "publishers/" in current_model:
-            current_model = current_model.split("/")[-1]
-        try:
-            if verbose:
-                print(f"    🎨 Trying Imagen model {current_model} on primary client...")
-            result = client.models.generate_images(
-                model=current_model,
-                prompt=prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio="16:9",
-                    output_mime_type="image/png",
-                )
-            )
-            if result and result.generated_images:
-                return result.generated_images[0].image.image_bytes, current_model, "Vertex AI" if primary_is_vertex else "AI Studio"
-        except Exception as e:
-            if verbose:
-                err_msg = str(e)
-                if "404" in err_msg or "not found" in err_msg.lower() or "access" in err_msg.lower():
-                    print(f"    ⚠️ Imagen 3 ({current_model}) not available on primary client: {err_msg}.")
-                else:
-                    print(f"    ⚠️ Imagen 3 ({current_model}) failed on primary client: {e}.")
+    # Add dynamically discovered models 
+    discovered = _get_available_imagen_models(client, primary_is_vertex, verbose=verbose)
+    for m in discovered.get("gemini", []):
+        if m not in gemini_fallbacks:
+            gemini_fallbacks.append(m)
+    for m in discovered.get("imagen", []):
+        if m not in imagen_fallbacks:
+            imagen_fallbacks.append(m)
 
-    # 5. Try alternative client fallback (if Vertex failed and AI Studio credentials exist, or vice versa)
+    client_label = "Vertex AI" if primary_is_vertex else "AI Studio"
+
+    # --- Phase 1: Try Gemini models on primary client ---
+    for model_name in gemini_fallbacks:
+        image_bytes = _try_gemini_image_generation(client, model_name, prompt, types, verbose=verbose)
+        if image_bytes:
+            return image_bytes, model_name, client_label
+
+    # --- Phase 2: Try Imagen models on primary client ---
+    for model_name in imagen_fallbacks:
+        image_bytes = _try_imagen_generation(client, model_name, prompt, types, verbose=verbose)
+        if image_bytes:
+            return image_bytes, model_name, client_label
+
+    # --- Phase 3: Try alternative client fallback ---
     alt_client = None
     alt_is_vertex = not primary_is_vertex
     try:
@@ -168,66 +228,45 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
         
         if primary_is_vertex and GOOGLE_API_KEY:
             if verbose:
-                print("    🎨 Vertex AI failed. Trying Google AI Studio (API key fallback)...")
+                print("    🔄 Primary client exhausted. Trying Google AI Studio fallback...")
             alt_client = genai.Client(api_key=GOOGLE_API_KEY)
         elif not primary_is_vertex and GCP_PROJECT:
             if verbose:
-                print("    🎨 AI Studio failed. Trying Vertex AI fallback...")
+                print("    🔄 Primary client exhausted. Trying Vertex AI fallback...")
             alt_client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_LOCATION)
     except Exception as ce:
         if verbose:
             print(f"    ⚠️ Alternative client initialization failed: {ce}")
 
     if alt_client:
-        # Build candidates for the alternative client (querying dynamically as well)
-        alt_model_candidates = []
-        if IMAGEN_MODEL:
-            alt_model_candidates.append(IMAGEN_MODEL)
-            
-        discovered_alt = _get_available_imagen_models(alt_client, alt_is_vertex, verbose=verbose)
-        for model_name in discovered_alt:
-            if alt_is_vertex and not model_name.startswith("publishers/"):
-                fp = f"publishers/google/models/{model_name}"
-                if fp not in alt_model_candidates:
-                    alt_model_candidates.append(fp)
-            if model_name not in alt_model_candidates:
-                alt_model_candidates.append(model_name)
+        alt_label = "Vertex AI" if alt_is_vertex else "AI Studio"
+        
+        # Discover models on alt client too
+        alt_discovered = _get_available_imagen_models(alt_client, alt_is_vertex, verbose=verbose)
+        
+        alt_gemini = list(gemini_fallbacks)
+        for m in alt_discovered.get("gemini", []):
+            if m not in alt_gemini:
+                alt_gemini.append(m)
                 
-        for fb in standard_fallbacks:
-            if fb not in alt_model_candidates:
-                alt_model_candidates.append(fb)
-            if alt_is_vertex:
-                full_path = f"publishers/google/models/{fb}"
-                if full_path not in alt_model_candidates:
-                    alt_model_candidates.append(full_path)
-                    
-        # Remove duplicates while preserving order
-        seen_alt = set()
-        alt_model_candidates = [x for x in alt_model_candidates if not (x in seen_alt or seen_alt.add(x))]
+        alt_imagen = list(imagen_fallbacks)
+        for m in alt_discovered.get("imagen", []):
+            if m not in alt_imagen:
+                alt_imagen.append(m)
 
-        for model_name in alt_model_candidates:
-            current_model = model_name
-            if not alt_is_vertex and "publishers/" in current_model:
-                current_model = current_model.split("/")[-1]
-            try:
-                if verbose:
-                    print(f"      🎨 Trying Imagen model {current_model} on alternative client...")
-                result = alt_client.models.generate_images(
-                    model=current_model,
-                    prompt=prompt,
-                    config=types.GenerateImagesConfig(
-                        number_of_images=1,
-                        aspect_ratio="16:9",
-                        output_mime_type="image/png",
-                    )
-                )
-                if result and result.generated_images:
-                    return result.generated_images[0].image.image_bytes, current_model, "Vertex AI" if alt_is_vertex else "AI Studio"
-            except Exception as e:
-                if verbose:
-                    print(f"      ⚠️ Alternative client Imagen ({current_model}) failed: {e}")
+        # Try Gemini on alt client
+        for model_name in alt_gemini:
+            image_bytes = _try_gemini_image_generation(alt_client, model_name, prompt, types, verbose=verbose)
+            if image_bytes:
+                return image_bytes, model_name, alt_label
 
-    raise ValueError("No image generation models succeeded.")
+        # Try Imagen on alt client
+        for model_name in alt_imagen:
+            image_bytes = _try_imagen_generation(alt_client, model_name, prompt, types, verbose=verbose)
+            if image_bytes:
+                return image_bytes, model_name, alt_label
+
+    raise ValueError("No image generation models succeeded. Check your API access and GCP project permissions.")
 
 
 def generate_scenes(
