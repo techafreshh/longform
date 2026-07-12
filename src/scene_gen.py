@@ -5,77 +5,148 @@ import base64
 from pathlib import Path
 from typing import Optional
 
-from .config import GOOGLE_API_KEY, STYLE_PRESETS, VIDEO_WIDTH, VIDEO_HEIGHT, slugify, get_genai_client, USE_VERTEX
+from .config import (
+    GOOGLE_API_KEY,
+    STYLE_PRESETS,
+    VIDEO_WIDTH,
+    VIDEO_HEIGHT,
+    slugify,
+    get_genai_client,
+    USE_VERTEX,
+    IMAGEN_MODEL,
+    GCP_PROJECT,
+    GCP_LOCATION,
+)
+
+
+# Module-level cache for discovered models to avoid listing on every single image generation call
+_discovered_imagen_models = None
 
 
 def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> bytes:
-    """Helper to generate an image using Imagen 3 with fallbacks to Pollinations.ai and Gemini 2.5 Flash."""
-    # 1. Try Imagen 3 first (official image generation API)
-    try:
-        model_name = "imagen-3.0-generate-001" if USE_VERTEX else "imagen-3.0-generate-002"
-        result = client.models.generate_images(
-            model=model_name,
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="16:9",
-                output_mime_type="image/png",
+    """Helper to generate an image using Imagen 3 with fallbacks (AI Studio / Vertex / Pollinations.ai)."""
+    global _discovered_imagen_models
+
+    # Initialize candidate models list
+    model_candidates = []
+
+    # 1. Start with the configured model
+    if IMAGEN_MODEL:
+        model_candidates.append(IMAGEN_MODEL)
+
+    # 2. Check if we have already queried available models, otherwise do it once
+    if _discovered_imagen_models is None:
+        _discovered_imagen_models = []
+        try:
+            if verbose:
+                print("    🔍 Querying available models from API...")
+            models = client.models.list()
+            for model in models:
+                name = model.name
+                if "imagen" in name.lower():
+                    # Keep the model name itself (e.g. publishers/google/models/imagen-3.0-generate-002)
+                    if name not in _discovered_imagen_models:
+                        _discovered_imagen_models.append(name)
+                    # Also try the short name (e.g. imagen-3.0-generate-002)
+                    short_name = name.split("/")[-1]
+                    if short_name not in _discovered_imagen_models:
+                        _discovered_imagen_models.append(short_name)
+        except Exception as e:
+            if verbose:
+                print(f"    ⚠️ Could not query models dynamically: {e}")
+
+    # Add dynamically discovered models
+    for model_name in _discovered_imagen_models:
+        if model_name not in model_candidates:
+            model_candidates.append(model_name)
+
+    # 3. Add standard fallback models to ensure we try all potential options
+    standard_fallbacks = [
+        "imagen-3.0-generate-002",
+        "imagen-3.0-generate-001",
+        "imagen-3.0-fast-generate-001",
+        "imagen-3.0-capability-001",
+        "imagen-2.0-generate-002",
+    ]
+    for fb in standard_fallbacks:
+        if fb not in model_candidates:
+            model_candidates.append(fb)
+        if USE_VERTEX:
+            full_path = f"publishers/google/models/{fb}"
+            if full_path not in model_candidates:
+                model_candidates.append(full_path)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    model_candidates = [x for x in model_candidates if not (x in seen or seen.add(x))]
+
+    # 4. Try Imagen models using the primary client
+    for model_name in model_candidates:
+        try:
+            if verbose:
+                print(f"    🎨 Trying Imagen model {model_name} on primary client...")
+            result = client.models.generate_images(
+                model=model_name,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="16:9",
+                    output_mime_type="image/png",
+                )
             )
-        )
-        if result and result.generated_images:
-            return result.generated_images[0].image.image_bytes
-    except Exception as e:
-        if verbose:
-            print(f"    ⚠️ Imagen 3 failed: {e}.")
+            if result and result.generated_images:
+                return result.generated_images[0].image.image_bytes
+        except Exception as e:
+            if verbose:
+                err_msg = str(e)
+                if "404" in err_msg or "not found" in err_msg.lower() or "access" in err_msg.lower():
+                    print(f"    ⚠️ Imagen 3 ({model_name}) not available on primary client: {err_msg}.")
+                else:
+                    print(f"    ⚠️ Imagen 3 ({model_name}) failed on primary client: {e}.")
 
-    # 2. Try Pollinations.ai (free, unlimited image generation fallback)
+    # 5. Try alternative client fallback (if Vertex failed and AI Studio credentials exist, or vice versa)
+    alt_client = None
     try:
-        if verbose:
-            print("    🎨 Trying Pollinations.ai (free keyless fallback)...")
-        import urllib.parse
-        import requests
-        import random
-        import time
+        from google import genai
+        # Check if the primary client was using Vertex
+        is_vertex = getattr(client, '_vertexai', False) or (hasattr(client, 'config') and getattr(client.config, 'vertexai', False))
         
-        encoded_prompt = urllib.parse.quote(prompt)
-        
-        for attempt in range(4):
-            seed = random.randint(1, 99999999)
-            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={VIDEO_WIDTH}&height={VIDEO_HEIGHT}&nologo=true&private=true&seed={seed}"
-            response = requests.get(url, timeout=35)
-            
-            if response.status_code == 200:
-                return response.content
-            elif response.status_code == 429:
-                wait_time = (attempt + 1) * 8
-                if verbose:
-                    print(f"      ⚠️ Pollinations.ai returned 429 (rate limited). Retrying in {wait_time}s... (attempt {attempt + 1}/4)")
-                time.sleep(wait_time)
-            else:
-                if verbose:
-                    print(f"      ⚠️ Pollinations.ai returned status code {response.status_code}")
-                break
-    except Exception as pe:
+        if is_vertex and GOOGLE_API_KEY:
+            if verbose:
+                print("    🎨 Vertex AI failed. Trying Google AI Studio (API key fallback)...")
+            alt_client = genai.Client(api_key=GOOGLE_API_KEY)
+        elif not is_vertex and GCP_PROJECT:
+            if verbose:
+                print("    🎨 AI Studio failed. Trying Vertex AI fallback...")
+            alt_client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_LOCATION)
+    except Exception as ce:
         if verbose:
-            print(f"    ⚠️ Pollinations.ai fallback failed: {pe}")
+            print(f"    ⚠️ Alternative client initialization failed: {ce}")
 
-    # 3. Fallback: gemini-2.5-flash with IMAGE response modality
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"],
-        ),
-    )
-
-    for part in response.candidates[0].content.parts:
-        if hasattr(part, 'inline_data') and part.inline_data:
-            image_data = part.inline_data.data
-            if isinstance(image_data, str):
-                return base64.b64decode(image_data)
-            return image_data
-
-    raise ValueError("No image data found in model response.")
+    if alt_client:
+        for model_name in model_candidates:
+            current_model = model_name
+            # For AI Studio, we don't want "publishers/google/models/" prefix
+            if not getattr(alt_client, '_vertexai', False) and "/" in current_model:
+                current_model = current_model.split("/")[-1]
+            try:
+                if verbose:
+                    print(f"      🎨 Trying Imagen model {current_model} on alternative client...")
+                result = alt_client.models.generate_images(
+                    model=current_model,
+                    prompt=prompt,
+                    config=types.GenerateImagesConfig(
+                        number_of_images=1,
+                        aspect_ratio="16:9",
+                        output_mime_type="image/png",
+                    )
+                )
+                if result and result.generated_images:
+                    return result.generated_images[0].image.image_bytes
+            except Exception as e:
+                if verbose:
+                    print(f"      ⚠️ Alternative client Imagen ({current_model}) failed: {e}")
+    raise ValueError("No image generation models succeeded.")
 
 
 def generate_scenes(

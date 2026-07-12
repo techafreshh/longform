@@ -26,6 +26,7 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 USE_VERTEX = os.getenv("USE_VERTEX", "false").lower() == "true"
 GCP_PROJECT = os.getenv("GCP_PROJECT", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
+IMAGEN_MODEL = os.getenv("IMAGEN_MODEL", "imagen-3.0-generate-002")
 
 
 # ---------------------------------------------------------------------------

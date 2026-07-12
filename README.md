@@ -49,8 +49,8 @@ If you have a Google Cloud account with $300 welcome credits, you can use **Vert
    * `GCP_LOCATION` to `us-central1` (or your preferred region)
 3. Run the Colab setup cell, approving the `auth.authenticate_user()` OAuth prompt. **Make sure to log in with the Google Account that holds the GCP project and credits.**
 
-### Free Image Fallback
-If you choose to stay on the free tier and run into Gemini AI Studio limits or depleted balance errors, the pipeline will **automatically fall back to Pollinations.ai** to generate images for free (with built-in exponential retry backoff and randomized seeding).
+### Image Generation Fallbacks
+If you are running the pipeline using Vertex AI (`USE_VERTEX=true`) and run into model availability or permissions errors, the pipeline will automatically attempt to fall back to Google AI Studio's Imagen models using the `GOOGLE_API_KEY`. If all generation backends fail, it automatically generates styled local placeholders using Python's Pillow library so the video rendering process can proceed uninterrupted.
 
 ### Google Sheet Setup
 
