@@ -171,6 +171,17 @@ def _scene_level_srt(timings: list[SceneTiming]) -> str:
     return "\n".join(srt_entries)
 
 
+def _detect_h264_encoder() -> str:
+    """Detect the best available H.264 encoder (h264_nvenc for GPU or libx264 for CPU)."""
+    try:
+        res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, check=True)
+        if "h264_nvenc" in res.stdout:
+            return "h264_nvenc"
+    except Exception:
+        pass
+    return "libx264"
+
+
 def assemble_video(
     timings: list[SceneTiming],
     voiceover_path: Path,
@@ -219,11 +230,21 @@ def assemble_video(
 
     # Strategy: render each scene as a short clip, then concatenate with transitions
     temp_dir = Path(tempfile.mkdtemp(prefix="longform_"))
+    
+    # Detect available encoder
+    encoder = _detect_h264_encoder()
+    if verbose:
+        print(f"⚙️ Video encoder: {encoder}")
 
     try:
         # Step 1: Generate per-scene clips with Ken Burns
+        if verbose:
+            print(f"🎬 Step 1/3: Rendering {len(timings)} scene clips with Ken Burns...")
         scene_clips = []
-        for timing in timings:
+        total_scenes = len(timings)
+        for idx, timing in enumerate(timings):
+            if verbose:
+                print(f"   [Scene {idx+1}/{total_scenes}] Rendering clip for scene {timing.index} ({timing.duration:.1f}s)...")
             clip_path = temp_dir / f"clip_{timing.index:02d}.mp4"
             _render_scene_clip(
                 image_path=timing.image_path,
@@ -231,6 +252,7 @@ def assemble_video(
                 duration=timing.duration,
                 ken_burns=ken_burns,
                 scene_index=timing.index,
+                encoder=encoder,
                 verbose=verbose,
             )
             scene_clips.append(clip_path)
@@ -238,17 +260,24 @@ def assemble_video(
         # Step 2: Concatenate clips with transitions
         joined_path = temp_dir / "joined.mp4"
         if transition_type != "none" and len(scene_clips) > 1:
+            if verbose:
+                print(f"🔗 Step 2/3: Concatenating clips with {transition_type} transitions...")
             _concat_with_transitions(
                 clips=scene_clips,
                 output=joined_path,
                 transition=transition_type,
                 transition_duration=transition_duration,
+                encoder=encoder,
                 verbose=verbose,
             )
         else:
+            if verbose:
+                print(f"🔗 Step 2/3: Concatenating clips (no transitions)...")
             _concat_simple(scene_clips, joined_path)
 
         # Step 3: Add audio (voiceover + optional BGM) and subtitles
+        if verbose:
+            print(f"🔧 Step 3/3: Finalizing video (mixing audio + burning subtitles)...")
         _finalize_video(
             video_path=joined_path,
             voiceover_path=voiceover_path,
@@ -257,6 +286,7 @@ def assemble_video(
             bgm_path=bgm_path,
             bgm_volume=bgm_volume,
             subtitle_style=preset,
+            encoder=encoder,
             verbose=verbose,
         )
 
@@ -280,6 +310,7 @@ def _render_scene_clip(
     duration: float,
     ken_burns: bool,
     scene_index: int,
+    encoder: str,
     verbose: bool,
 ):
     """Render a single scene image into a video clip with optional Ken Burns."""
@@ -316,20 +347,41 @@ def _render_scene_clip(
             f"format=yuv420p"
         )
 
+    # Build command based on encoder
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1",
         "-i", str(image_path),
         "-vf", filter_str,
         "-t", str(duration),
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        "-an",  # No audio yet
-        str(output_path),
+        "-c:v", encoder,
     ]
+    if encoder == "h264_nvenc":
+        cmd.extend(["-preset", "fast", "-rc:v", "constqp", "-qp", "23"])
+    else:
+        cmd.extend(["-preset", "fast", "-crf", "23"])
+    cmd.extend(["-an", str(output_path)])
 
     result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    # Try CPU encoding if GPU encoding fails
+    if result.returncode != 0 and encoder == "h264_nvenc":
+        if verbose:
+            print(f"  ⚠️ GPU encoding failed for scene {scene_index}. Falling back to CPU...")
+        cmd_cpu = [
+            "ffmpeg", "-y",
+            "-loop", "1",
+            "-i", str(image_path),
+            "-vf", filter_str,
+            "-t", str(duration),
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-an",
+            str(output_path),
+        ]
+        result = subprocess.run(cmd_cpu, capture_output=True, text=True)
+
     if result.returncode != 0 and verbose:
         # Fall back to simple scale if zoompan fails
         print(f"  ⚠️ Ken Burns failed for scene {scene_index}, using simple scale")
@@ -352,6 +404,7 @@ def _concat_with_transitions(
     output: Path,
     transition: str = "fade",
     transition_duration: float = 0.5,
+    encoder: str = "libx264",
     verbose: bool = False,
 ):
     """Concatenate clips with xfade transitions between them."""
@@ -360,12 +413,10 @@ def _concat_with_transitions(
         return
 
     # Build the complex filter graph for xfade
-    # For N clips, we need N-1 xfade operations
     inputs = []
     for clip in clips:
         inputs.extend(["-i", str(clip)])
 
-    # Calculate offsets: each xfade starts at (cumulative_duration - transition_duration)
     durations = [_get_duration(clip) for clip in clips]
 
     filter_parts = []
@@ -389,13 +440,30 @@ def _concat_with_transitions(
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", filter_graph,
         "-map", "[vout]",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        str(output),
+        "-c:v", encoder,
     ]
+    if encoder == "h264_nvenc":
+        cmd.extend(["-preset", "fast", "-rc:v", "constqp", "-qp", "23"])
+    else:
+        cmd.extend(["-preset", "fast", "-crf", "23"])
+    cmd.append(str(output))
 
     result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    # Try CPU encoding if GPU encoding fails
+    if result.returncode != 0 and encoder == "h264_nvenc":
+        if verbose:
+            print("  ⚠️ GPU encoding failed during concatenation. Falling back to CPU...")
+        cmd_cpu = ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_graph,
+            "-map", "[vout]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            str(output),
+        ]
+        result = subprocess.run(cmd_cpu, capture_output=True, text=True)
+
     if result.returncode != 0:
         if verbose:
             print(f"  ⚠️ xfade failed, falling back to simple concat")
@@ -431,6 +499,7 @@ def _finalize_video(
     bgm_path: Optional[Path],
     bgm_volume: float,
     subtitle_style: dict,
+    encoder: str,
     verbose: bool,
 ):
     """Add audio tracks and subtitles to the assembled video."""
@@ -440,7 +509,6 @@ def _finalize_video(
     # Audio mixing
     if bgm_path and bgm_path.exists():
         inputs.extend(["-i", str(bgm_path)])
-        # Mix voiceover (full volume) + BGM (reduced volume)
         filter_parts.append(
             f"[1:a]volume=1.0[vo];"
             f"[2:a]volume={bgm_volume}[bgm];"
@@ -453,13 +521,11 @@ def _finalize_video(
     # Build subtitle filter
     sub_filter = ""
     if subtitle_path and subtitle_path.exists():
-        # Style the subtitles
         sub_color = subtitle_style.get("subtitle_color", "#FFFFFF").lstrip("#")
-        sub_bg = "000000"  # ASS uses AABBGGRR format
+        sub_bg = "000000"
         font_size = 22
         margin_v = 40
 
-        # Use ASS force_style for consistent subtitle look
         force_style = (
             f"FontSize={font_size},"
             f"PrimaryColour=&H00{sub_color[4:6]}{sub_color[2:4]}{sub_color[0:2]},"
@@ -477,7 +543,6 @@ def _finalize_video(
     cmd = ["ffmpeg", "-y"] + inputs
 
     if filter_parts and sub_filter:
-        # Both audio mix and subtitles
         full_filter = ";".join(filter_parts)
         cmd.extend([
             "-filter_complex", full_filter,
@@ -486,30 +551,32 @@ def _finalize_video(
             "-map", audio_map,
         ])
     elif filter_parts:
-        # Just audio mix
         cmd.extend([
             "-filter_complex", ";".join(filter_parts),
             "-map", "0:v",
             "-map", audio_map,
         ])
     elif sub_filter:
-        # Just subtitles
         cmd.extend([
             "-vf", sub_filter,
             "-map", "0:v",
             "-map", "1:a",
         ])
     else:
-        # Just combine video + audio
         cmd.extend([
             "-map", "0:v",
             "-map", "1:a",
         ])
 
     cmd.extend([
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "20",
+        "-c:v", encoder,
+    ])
+    if encoder == "h264_nvenc":
+        cmd.extend(["-preset", "fast", "-rc:v", "constqp", "-qp", "20"])
+    else:
+        cmd.extend(["-preset", "medium", "-crf", "20"])
+
+    cmd.extend([
         "-c:a", "aac",
         "-b:a", "192k",
         "-shortest",
@@ -520,8 +587,49 @@ def _finalize_video(
         print("  🔧 Finalizing video (adding audio + subtitles)...")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    # Fallback to CPU if GPU encoding fails
+    if result.returncode != 0 and encoder == "h264_nvenc":
+        if verbose:
+            print("  ⚠️ GPU encoding failed during finalization. Falling back to CPU...")
+        cmd_cpu = ["ffmpeg", "-y"] + inputs
+        if filter_parts and sub_filter:
+            cmd_cpu.extend([
+                "-filter_complex", full_filter,
+                "-vf", sub_filter,
+                "-map", "0:v",
+                "-map", audio_map,
+            ])
+        elif filter_parts:
+            cmd_cpu.extend([
+                "-filter_complex", ";".join(filter_parts),
+                "-map", "0:v",
+                "-map", audio_map,
+            ])
+        elif sub_filter:
+            cmd_cpu.extend([
+                "-vf", sub_filter,
+                "-map", "0:v",
+                "-map", "1:a",
+            ])
+        else:
+            cmd_cpu.extend([
+                "-map", "0:v",
+                "-map", "1:a",
+            ])
+        cmd_cpu.extend([
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "20",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(output_path),
+        ])
+        result = subprocess.run(cmd_cpu, capture_output=True, text=True)
+
     if result.returncode != 0 and verbose:
-        print(f"  ⚠️ Finalize warning: {result.stderr[:300]}")
+        print(f"  ⚠️ Finalize warning/error: {result.stderr[:300]}")
 
 
 def _get_duration(path: Path) -> float:
