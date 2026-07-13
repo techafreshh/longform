@@ -15,6 +15,16 @@ Automated faceless whiteboard animation YouTube video pipeline. Goes from topic 
 - **Variable visual styles** — Color whiteboard or chalkboard (per-video setting)
 - **Two review gates** — Review script + review final video before publishing
 
+## Resilient & Cloud-Native Execution (Google Drive & GPU-Accelerated Assembly)
+
+The pipeline is built with maximum resilience to handle Colab VM session losses, rate limits, and cross-account handoffs:
+
+- **GPU-Accelerated Video Rendering**: Auto-detects and utilizes the `h264_nvenc` encoder (e.g. on T4 GPU instances in Google Colab) to accelerate rendering. Gracefully falls back to `libx264` (CPU) if a GPU is unavailable.
+- **Incremental Scene Caching**: Every scene is rendered to a persistent cache directory (`clips_cache/`) as an individual `.mp4` clip. If a crash or timeout occurs, the system checks size and modification times to skip already-rendered clips, ensuring assembly can resume instantly.
+- **Granular Fetch-on-Demand (Google Drive)**: Replaces slow, full-folder downloads with bandwidth-efficient, granular syncing. Root files (`script.md`, `scenes.json`) are pulled on startup, while larger stage assets (`audio`, `scenes`, `clips_cache`) are synced incrementally *only* when the corresponding stage starts.
+- **Immediate Cloud Backup & Synchronization**: To prevent losing work from volatile Colab disks, generated assets from every stage (research, script, voice segments, scene images, thumbnail variants, rendering clips, and final video/SRT files) are immediately uploaded to a shared Google Drive folder upon creation.
+- **Multi-Account Resume Support**: By sharing a single project Google Drive folder link, you can swap between Google accounts (to bypass rate limits or VM daily quotas) and run the notebook on a different VM. The pipeline automatically recovers all completed progress from Google Drive and resumes exactly where the previous account left off.
+
 ## Quick Start (Google Colab)
 
 1. Open `Longform_Video_Factory.ipynb` in Google Colab
