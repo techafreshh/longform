@@ -54,15 +54,15 @@ def test_try_gemini_image_generation_retry_on_429(mock_sleep):
 def test_try_gemini_image_generation_fails_on_persistent_429(mock_sleep):
     client = MagicMock()
     
-    # All 5 calls raise 429
+    # All 10 calls raise 429
     client.models.generate_content.side_effect = Exception("429 RESOURCE_EXHAUSTED: Resource exhausted")
     
     types = MagicMock()
     res = _try_gemini_image_generation(client, "gemini-2.5-flash-image", "prompt", types, verbose=True)
     
     assert res is None
-    assert client.models.generate_content.call_count == 5
-    assert mock_sleep.call_count == 4
+    assert client.models.generate_content.call_count == 10
+    assert mock_sleep.call_count == 9
 
 
 def test_try_gemini_image_generation_fails_immediately_on_404():

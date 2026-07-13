@@ -107,7 +107,7 @@ def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) 
 
 def _try_gemini_image_generation(client, model_name: str, prompt: str, types, verbose: bool = True) -> Optional[bytes]:
     """Try generating an image using Gemini's generate_content with IMAGE response modality."""
-    max_retries = 5
+    max_retries = 10
     base_delay = 5  # seconds
     for attempt in range(max_retries):
         try:
@@ -150,7 +150,7 @@ def _try_gemini_image_generation(client, model_name: str, prompt: str, types, ve
 
 def _try_imagen_generation(client, model_name: str, prompt: str, types, verbose: bool = True) -> Optional[bytes]:
     """Try generating an image using Imagen's generate_images endpoint."""
-    max_retries = 5
+    max_retries = 10
     base_delay = 5  # seconds
     for attempt in range(max_retries):
         try:
