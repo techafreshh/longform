@@ -229,7 +229,9 @@ def assemble_video(
         print(f"🎬 Assembling video: {len(timings)} scenes, {total_dur:.1f}s total")
 
     # Strategy: render each scene as a short clip, then concatenate with transitions
-    temp_dir = Path(tempfile.mkdtemp(prefix="longform_"))
+    # Use a persistent cache directory to allow resuming video assembly
+    clips_cache_dir = output_path.parent.parent / "clips_cache"
+    clips_cache_dir.mkdir(parents=True, exist_ok=True)
     
     # Detect available encoder
     encoder = _detect_h264_encoder()
@@ -243,22 +245,43 @@ def assemble_video(
         scene_clips = []
         total_scenes = len(timings)
         for idx, timing in enumerate(timings):
-            if verbose:
-                print(f"   [Scene {idx+1}/{total_scenes}] Rendering clip for scene {timing.index} ({timing.duration:.1f}s)...")
-            clip_path = temp_dir / f"clip_{timing.index:02d}.mp4"
-            _render_scene_clip(
-                image_path=timing.image_path,
-                output_path=clip_path,
-                duration=timing.duration,
-                ken_burns=ken_burns,
-                scene_index=timing.index,
-                encoder=encoder,
-                verbose=verbose,
-            )
+            clip_filename = f"clip_{timing.index:02d}_dur_{timing.duration:.2f}.mp4"
+            clip_path = clips_cache_dir / clip_filename
+            
+            # Clean up any stale duration clips for this scene index
+            for stale_file in clips_cache_dir.glob(f"clip_{timing.index:02d}_dur_*.mp4"):
+                if stale_file.name != clip_filename:
+                    try:
+                        stale_file.unlink()
+                    except Exception:
+                        pass
+
+            image_mtime = timing.image_path.stat().st_mtime
+            clip_exists = clip_path.exists()
+            clip_mtime = clip_path.stat().st_mtime if clip_exists else 0
+            
+            if clip_exists and clip_path.stat().st_size > 1024 and clip_mtime > image_mtime:
+                if verbose:
+                    print(f"   [Scene {idx+1}/{total_scenes}] Clip for scene {timing.index} already exists (cached). Skipping...")
+            else:
+                if verbose:
+                    if clip_exists:
+                        print(f"   [Scene {idx+1}/{total_scenes}] Clip for scene {timing.index} is stale. Regenerating...")
+                    else:
+                        print(f"   [Scene {idx+1}/{total_scenes}] Rendering clip for scene {timing.index} ({timing.duration:.1f}s)...")
+                _render_scene_clip(
+                    image_path=timing.image_path,
+                    output_path=clip_path,
+                    duration=timing.duration,
+                    ken_burns=ken_burns,
+                    scene_index=timing.index,
+                    encoder=encoder,
+                    verbose=verbose,
+                )
             scene_clips.append(clip_path)
 
         # Step 2: Concatenate clips with transitions
-        joined_path = temp_dir / "joined.mp4"
+        joined_path = clips_cache_dir / "joined.mp4"
         if transition_type != "none" and len(scene_clips) > 1:
             if verbose:
                 print(f"🔗 Step 2/3: Concatenating clips with {transition_type} transitions...")
@@ -290,14 +313,14 @@ def assemble_video(
             verbose=verbose,
         )
 
-    finally:
-        # Cleanup temp files
-        import shutil
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception as e:
+        if verbose:
+            print(f"❌ Error during video assembly: {e}")
+        raise e
 
     if verbose:
         duration = _get_duration(output_path)
-        size_mb = output_path.stat().st_size / (1024 * 1024)
+        size_mb = output_path.stat().st_size / (1024 * 1024) if output_path.exists() else 0.0
         print(f"✅ Video assembled: {output_path}")
         print(f"   Duration: {duration:.1f}s | Size: {size_mb:.1f} MB")
 
