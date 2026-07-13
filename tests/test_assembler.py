@@ -3,9 +3,6 @@ from unittest.mock import MagicMock, patch
 from pathlib import Path
 import sys
 
-# We mock config before importing assembler to avoid errors
-sys.modules['src.config'] = MagicMock()
-
 from src.assembler import _detect_h264_encoder, SceneTiming
 
 def test_scene_timing_dataclass():

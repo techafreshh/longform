@@ -193,6 +193,7 @@ def assemble_video(
     ken_burns: bool = True,
     transition_type: str = "fade",
     transition_duration: float = 0.5,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> Path:
     """
@@ -216,6 +217,7 @@ def assemble_video(
         ken_burns: Apply Ken Burns zoom/pan effect.
         transition_type: Type of transition between scenes.
         transition_duration: Duration of transitions in seconds.
+        gdrive_folder_id: Optional Google Drive folder ID to upload clips/video immediately.
         verbose: Print progress.
 
     Returns:
@@ -278,6 +280,17 @@ def assemble_video(
                     encoder=encoder,
                     verbose=verbose,
                 )
+                
+                # Upload scene clip immediately if gdrive is configured
+                if gdrive_folder_id:
+                    try:
+                        from .gdrive import get_gdrive_service, upload_file_to_drive_folder
+                        service = get_gdrive_service()
+                        if service:
+                            upload_file_to_drive_folder(service, gdrive_folder_id, clip_path, "clips_cache")
+                    except Exception as upload_err:
+                        print(f"   ⚠️ Failed to upload clip for scene {timing.index} to Google Drive: {upload_err}")
+                        
             scene_clips.append(clip_path)
 
         # Step 2: Concatenate clips with transitions
@@ -312,6 +325,18 @@ def assemble_video(
             encoder=encoder,
             verbose=verbose,
         )
+        
+        # Upload final output files immediately if gdrive is configured
+        if gdrive_folder_id:
+            try:
+                from .gdrive import get_gdrive_service, upload_file_to_drive_folder
+                service = get_gdrive_service()
+                if service:
+                    upload_file_to_drive_folder(service, gdrive_folder_id, output_path, "output")
+                    if subtitle_path:
+                        upload_file_to_drive_folder(service, gdrive_folder_id, subtitle_path, "output")
+            except Exception as upload_err:
+                print(f"   ⚠️ Failed to upload output files to Google Drive: {upload_err}")
 
     except Exception as e:
         if verbose:

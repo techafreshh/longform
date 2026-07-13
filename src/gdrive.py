@@ -36,10 +36,18 @@ def get_gdrive_service():
         return None
 
 def download_drive_folder_api(service, folder_id: str, local_path: str):
-    """Recursively downloads all files and subfolders from a Google Drive folder ID to local_path."""
+    """Wrapper around incremental_sync_drive_to_local to maintain backward compatibility."""
+    incremental_sync_drive_to_local(service, folder_id, Path(local_path))
+
+def incremental_sync_drive_to_local(service, folder_id: str, local_path: Path):
+    """
+    Incrementally sync files and subfolders from a Google Drive folder to local_path.
+    Only downloads new or size-mismatched files, and uses temp file renaming for data integrity.
+    """
     from googleapiclient.http import MediaIoBaseDownload
     
-    os.makedirs(local_path, exist_ok=True)
+    local_path = Path(local_path)
+    local_path.mkdir(parents=True, exist_ok=True)
     
     page_token = None
     while True:
@@ -47,7 +55,7 @@ def download_drive_folder_api(service, folder_id: str, local_path: str):
         results = service.files().list(
             q=query,
             pageToken=page_token,
-            fields="nextPageToken, files(id, name, mimeType)"
+            fields="nextPageToken, files(id, name, mimeType, size)"
         ).execute()
         
         items = results.get('files', [])
@@ -55,16 +63,20 @@ def download_drive_folder_api(service, folder_id: str, local_path: str):
             item_id = item['id']
             item_name = item['name']
             mime_type = item['mimeType']
-            dest_item_path = os.path.join(local_path, item_name)
+            dest_item_path = local_path / item_name
             
             if mime_type == 'application/vnd.google-apps.folder':
-                download_drive_folder_api(service, item_id, dest_item_path)
+                incremental_sync_drive_to_local(service, item_id, dest_item_path)
             else:
-                if os.path.exists(dest_item_path):
-                    # Skip files that are already fully downloaded
-                    continue
+                remote_size = int(item.get('size', 0))
                 
-                print(f"  Downloading {item_name}...")
+                # Check if local file exists and matches size
+                if dest_item_path.exists():
+                    local_size = dest_item_path.stat().st_size
+                    if local_size == remote_size:
+                        continue
+                
+                print(f"  📥 Downloading: {item_name} ({remote_size / (1024*1024):.2f} MB)...")
                 try:
                     request = service.files().get_media(fileId=item_id)
                     fh = io.BytesIO()
@@ -73,14 +85,80 @@ def download_drive_folder_api(service, folder_id: str, local_path: str):
                     while not done:
                         _, done = downloader.next_chunk()
                     
-                    with open(dest_item_path, 'wb') as f:
+                    # Write to temporary file first to guarantee download completeness/integrity
+                    temp_path = dest_item_path.with_suffix(dest_item_path.suffix + ".tmp")
+                    with open(temp_path, 'wb') as f:
                         f.write(fh.getvalue())
+                    temp_path.replace(dest_item_path)
                 except Exception as e:
                     print(f"  ⚠️ Failed to download {item_name}: {e}")
                     
         page_token = results.get('nextPageToken', None)
         if not page_token:
             break
+
+def sync_gdrive_root_files(service, folder_id: str, local_path: Path):
+    """Syncs only the top-level files of a Google Drive folder (no folders)."""
+    from googleapiclient.http import MediaIoBaseDownload
+    
+    local_path = Path(local_path)
+    local_path.mkdir(parents=True, exist_ok=True)
+    
+    page_token = None
+    while True:
+        query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+        results = service.files().list(
+            q=query,
+            pageToken=page_token,
+            fields="nextPageToken, files(id, name, size)"
+        ).execute()
+        
+        items = results.get('files', [])
+        for item in items:
+            item_id = item['id']
+            item_name = item['name']
+            dest_item_path = local_path / item_name
+            remote_size = int(item.get('size', 0))
+            
+            if dest_item_path.exists():
+                if dest_item_path.stat().st_size == remote_size:
+                    continue
+                    
+            print(f"  📥 Downloading root file: {item_name}...")
+            try:
+                request = service.files().get_media(fileId=item_id)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                
+                temp_path = dest_item_path.with_suffix(dest_item_path.suffix + ".tmp")
+                with open(temp_path, 'wb') as f:
+                    f.write(fh.getvalue())
+                temp_path.replace(dest_item_path)
+            except Exception as e:
+                print(f"  ⚠️ Failed to download {item_name}: {e}")
+                
+        page_token = results.get('nextPageToken', None)
+        if not page_token:
+            break
+
+def download_gdrive_subfolder_incremental(service, parent_folder_id: str, subfolder_name: str, local_parent_path: Path) -> bool:
+    """Finds a subfolder in the parent Google Drive folder and incrementally syncs it locally."""
+    local_parent_path = Path(local_parent_path)
+    query = f"'{parent_folder_id}' in parents and name = '{subfolder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    try:
+        results = service.files().list(q=query, fields="files(id)").execute()
+        files = results.get('files', [])
+        if files:
+            subfolder_id = files[0]['id']
+            dest_path = local_parent_path / subfolder_name
+            incremental_sync_drive_to_local(service, subfolder_id, dest_path)
+            return True
+    except Exception as e:
+        print(f"⚠️ Failed to sync subfolder '{subfolder_name}': {e}")
+    return False
 
 def upload_file_to_drive_folder(service, folder_id: str, local_file_path: Path, gdrive_subfolder_name: Optional[str] = None) -> str:
     """Uploads a local file to a Google Drive folder. If a subfolder name is specified,

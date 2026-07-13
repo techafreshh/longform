@@ -2,6 +2,17 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
+import sys
+
+# Mock google.genai and other modules before imports
+sys.modules['google'] = MagicMock()
+sys.modules['google.genai'] = MagicMock()
+sys.modules['google.genai.types'] = MagicMock()
+sys.modules['openai'] = MagicMock()
+sys.modules['google.auth'] = MagicMock()
+sys.modules['googleapiclient'] = MagicMock()
+sys.modules['googleapiclient.discovery'] = MagicMock()
+sys.modules['googleapiclient.http'] = MagicMock()
 
 from src.config import ProjectPaths
 from src.pipeline import (
@@ -103,7 +114,7 @@ def test_run_stage_script_skips_when_exists(mock_generate_script, temp_project_p
 def test_run_stage_script_generates_when_missing(mock_generate_script, temp_project_paths):
     dummy_script = Script(
         raw_text="dummy script text",
-        scenes=[Scene(index=1, title="Scene 1", description="desc", narration="narr", duration=5.0)],
+        scenes=[Scene(index=1, description="desc", narration="narr")],
         topic="test-topic",
         niche="test-niche",
         style="color_whiteboard"

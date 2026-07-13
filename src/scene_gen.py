@@ -308,6 +308,7 @@ def generate_scenes(
     reference_images: Optional[list[str]] = None,
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """
@@ -320,6 +321,7 @@ def generate_scenes(
         reference_images: Optional list of paths to style reference images.
         force: Force generate all scene images.
         force_scenes: Specific scene indices to force generate.
+        gdrive_folder_id: Optional Google Drive folder ID to upload images immediately.
         verbose: Print progress.
 
     Returns:
@@ -378,6 +380,17 @@ def generate_scenes(
             image_bytes, model_name, client_type = _generate_single_image(client, prompt, types, verbose=verbose)
             with open(image_path, "wb") as f:
                 f.write(image_bytes)
+            
+            # Upload immediately if gdrive is configured
+            if gdrive_folder_id:
+                try:
+                    from .gdrive import get_gdrive_service, upload_file_to_drive_folder
+                    service = get_gdrive_service()
+                    if service:
+                        upload_file_to_drive_folder(service, gdrive_folder_id, image_path, "scenes")
+                except Exception as upload_err:
+                    print(f"  ⚠️ Failed to upload scene {idx} to Google Drive: {upload_err}")
+
             cost = _get_model_cost(model_name)
             report_records.append({
                 "scene_index": idx,
@@ -390,6 +403,17 @@ def generate_scenes(
         except Exception as e:
             print(f"  ⚠️ Image generation failed for scene {idx}: {e}")
             _create_placeholder(image_path, description, preset)
+            
+            # Upload placeholder immediately if gdrive is configured
+            if gdrive_folder_id:
+                try:
+                    from .gdrive import get_gdrive_service, upload_file_to_drive_folder
+                    service = get_gdrive_service()
+                    if service:
+                        upload_file_to_drive_folder(service, gdrive_folder_id, image_path, "scenes")
+                except Exception as upload_err:
+                    print(f"  ⚠️ Failed to upload placeholder scene {idx} to Google Drive: {upload_err}")
+
             report_records.append({
                 "scene_index": idx,
                 "description": description,

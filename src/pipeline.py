@@ -14,12 +14,26 @@ from .seo import generate_seo
 from .stock import search_stock_footage
 
 
+def _upload_if_gdrive_active(gdrive_folder_id: Optional[str], file_path: Path, subfolder: Optional[str] = None):
+    """Utility to upload a file to Google Drive if folder ID is provided, without raising exceptions."""
+    if not gdrive_folder_id:
+        return
+    try:
+        from .gdrive import get_gdrive_service, upload_file_to_drive_folder
+        service = get_gdrive_service()
+        if service:
+            upload_file_to_drive_folder(service, gdrive_folder_id, file_path, subfolder)
+    except Exception as e:
+        print(f"⚠️ Failed to upload {file_path.name} to Google Drive: {e}")
+
+
 def run_stage_research(
     paths: ProjectPaths,
     topic: str,
     niche: str,
     additional_prompt: str = "",
     force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> str:
     """Run research stage, skipping if research file already exists."""
@@ -29,13 +43,15 @@ def run_stage_research(
             print("   Skipping research stage to save credits. Set force=True to regenerate.")
         return paths.research_file.read_text(encoding="utf-8")
 
-    return research_topic(
+    res_text = research_topic(
         topic=topic,
         niche=niche,
         additional_prompt=additional_prompt,
         output_path=paths.research_file,
         verbose=verbose,
     )
+    _upload_if_gdrive_active(gdrive_folder_id, paths.research_file)
+    return res_text
 
 
 def run_stage_script(
@@ -48,6 +64,7 @@ def run_stage_script(
     additional_prompt: str = "",
     model: Optional[str] = None,
     force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> Script:
     """Run script generation stage, skipping if script and scenes JSON already exist."""
@@ -78,6 +95,9 @@ def run_stage_script(
         verbose=verbose,
     )
     script.save_scenes_json(scenes_json_path)
+    
+    _upload_if_gdrive_active(gdrive_folder_id, paths.script_file)
+    _upload_if_gdrive_active(gdrive_folder_id, scenes_json_path)
     return script
 
 
@@ -88,6 +108,7 @@ def run_stage_voice(
     voice_model: str = "s2.1-pro-free",
     reference_audio: Optional[str] = None,
     force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> VoiceResult:
     """Run voice generation stage, skipping if voiceover and timestamps already exist."""
@@ -134,6 +155,13 @@ def run_stage_voice(
         raise ValueError(f"Unknown TTS engine: {tts_engine}")
 
     voice_result.save_timestamps(paths.timestamps_file)
+    
+    # Upload voice files immediately
+    _upload_if_gdrive_active(gdrive_folder_id, voice_result.combined_audio)
+    _upload_if_gdrive_active(gdrive_folder_id, paths.timestamps_file)
+    for seg in voice_result.segments:
+        _upload_if_gdrive_active(gdrive_folder_id, seg.audio_path, "voice")
+
     return voice_result
 
 
@@ -143,6 +171,7 @@ def run_stage_scenes(
     style: str,
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """Run scene image generation stage, skipping if all expected scene images exist."""
@@ -175,6 +204,7 @@ def run_stage_scenes(
         output_dir=paths.scenes_dir,
         force=force,
         force_scenes=force_scenes,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
 
@@ -188,6 +218,7 @@ def run_stage_assembly(
     bgm_volume: float = 0.15,
     ken_burns: bool = True,
     force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> Path:
     """Run video assembly stage, skipping if final video already exists."""
@@ -218,6 +249,7 @@ def run_stage_assembly(
         bgm_path=Path(bgm_path) if bgm_path else None,
         bgm_volume=bgm_volume,
         ken_burns=ken_burns,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     return paths.final_video
@@ -229,6 +261,7 @@ def run_stage_thumbnails(
     niche: str,
     style: str,
     force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """Run thumbnail generation stage, skipping if thumbnails already exist."""
@@ -240,13 +273,19 @@ def run_stage_thumbnails(
             print("   Skipping thumbnail generation to save credits. Set force=True to regenerate.")
         return existing_thumbs
 
-    return generate_thumbnail(
+    thumbs = generate_thumbnail(
         topic=topic,
         niche=niche,
         style=style,
         output_dir=paths.thumbnail_dir,
         verbose=verbose,
     )
+    
+    # Upload thumbnails immediately
+    for tp in thumbs:
+        _upload_if_gdrive_active(gdrive_folder_id, tp, "thumbnails")
+        
+    return thumbs
 
 
 def run_stage_seo(
@@ -256,6 +295,7 @@ def run_stage_seo(
     script_text: str,
     style: str,
     force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> dict:
     """Run SEO generation stage, skipping if SEO file already exists."""
@@ -266,7 +306,7 @@ def run_stage_seo(
         with open(paths.seo_file, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    return generate_seo(
+    seo = generate_seo(
         topic=topic,
         niche=niche,
         script_text=script_text,
@@ -274,6 +314,8 @@ def run_stage_seo(
         output_path=paths.seo_file,
         verbose=verbose,
     )
+    _upload_if_gdrive_active(gdrive_folder_id, paths.seo_file)
+    return seo
 
 
 def run_pipeline(
@@ -294,6 +336,7 @@ def run_pipeline(
     model: Optional[str] = None,
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> dict:
     """
@@ -330,6 +373,7 @@ def run_pipeline(
             niche=niche,
             additional_prompt=additional_prompt,
             force=force,
+            gdrive_folder_id=gdrive_folder_id,
             verbose=verbose,
         )
         results["research"] = str(paths.research_file)
@@ -350,6 +394,7 @@ def run_pipeline(
         additional_prompt=additional_prompt,
         model=model,
         force=force,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     results["script"] = str(paths.script_file)
@@ -373,6 +418,7 @@ def continue_after_script_review(
     ken_burns: bool = True,
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
+    gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> dict:
     """Continue the pipeline after script review approval."""
@@ -395,6 +441,7 @@ def continue_after_script_review(
         voice_model=voice_model,
         reference_audio=reference_audio,
         force=force,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     results["voiceover"] = str(voice_result.combined_audio)
@@ -412,6 +459,7 @@ def continue_after_script_review(
         style=style,
         force=force,
         force_scenes=force_scenes,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     results["scenes"] = [str(p) for p in image_paths]
@@ -431,6 +479,7 @@ def continue_after_script_review(
         bgm_volume=bgm_volume,
         ken_burns=ken_burns,
         force=force,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     results["video"] = str(video_path)
@@ -447,6 +496,7 @@ def continue_after_script_review(
         niche=script.niche,
         style=style,
         force=force,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     results["thumbnails"] = [str(p) for p in thumbnails]
@@ -464,6 +514,7 @@ def continue_after_script_review(
         script_text=script.raw_text,
         style=style,
         force=force,
+        gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     results["seo"] = seo
