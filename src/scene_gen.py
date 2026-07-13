@@ -309,6 +309,7 @@ def generate_scenes(
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
     gdrive_folder_id: Optional[str] = None,
+    resume_from_scene: Optional[int] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """
@@ -322,6 +323,7 @@ def generate_scenes(
         force: Force generate all scene images.
         force_scenes: Specific scene indices to force generate.
         gdrive_folder_id: Optional Google Drive folder ID to upload images immediately.
+        resume_from_scene: Optional scene index to resume generation from (skips smaller indices).
         verbose: Print progress.
 
     Returns:
@@ -347,6 +349,21 @@ def generate_scenes(
         idx = scene["index"]
         description = scene["description"]
         image_path = output_dir / f"scene_{idx:02d}.png"
+
+        # Check if we should skip due to resume index
+        if resume_from_scene is not None and idx < resume_from_scene:
+            if verbose:
+                print(f"  ℹ️ Scene {idx} is before resume index {resume_from_scene}. Skipping.")
+            generated_paths.append(image_path)
+            report_records.append({
+                "scene_index": idx,
+                "description": description,
+                "status": "Skipped (Before Resume)",
+                "model": "N/A",
+                "client": "N/A",
+                "cost": 0.00
+            })
+            continue
 
         # Check if we should skip this specific image
         if image_path.exists() and not force:

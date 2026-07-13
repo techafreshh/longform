@@ -194,6 +194,7 @@ def assemble_video(
     transition_type: str = "fade",
     transition_duration: float = 0.5,
     gdrive_folder_id: Optional[str] = None,
+    resume_from_scene: Optional[int] = None,
     verbose: bool = True,
 ) -> Path:
     """
@@ -250,6 +251,12 @@ def assemble_video(
             clip_filename = f"clip_{timing.index:02d}_dur_{timing.duration:.2f}.mp4"
             clip_path = clips_cache_dir / clip_filename
             
+            if resume_from_scene is not None and timing.index < resume_from_scene:
+                if verbose:
+                    print(f"   [Scene {idx+1}/{total_scenes}] Scene {timing.index} is before resume index {resume_from_scene}. Skipping...")
+                scene_clips.append(clip_path)
+                continue
+
             # Clean up any stale duration clips for this scene index
             for stale_file in clips_cache_dir.glob(f"clip_{timing.index:02d}_dur_*.mp4"):
                 if stale_file.name != clip_filename:

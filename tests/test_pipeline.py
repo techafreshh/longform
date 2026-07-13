@@ -244,3 +244,24 @@ def test_run_stage_seo_skips_when_exists(mock_generate_seo, temp_project_paths):
 
     assert res == seo_data
     mock_generate_seo.assert_not_called()
+
+
+@patch("src.pipeline.generate_scenes")
+def test_run_stage_scenes_respects_resume_from_scene(mock_generate_scenes, temp_project_paths):
+    scenes_data = [{"index": 1}, {"index": 2}]
+    
+    # Only scene 2 exists
+    img2 = temp_project_paths.scenes_dir / "scene_02.png"
+    img2.write_text("data", encoding="utf-8")
+    
+    # We resume from 2, so scene 1 is ignored and scene 2 exists, so we should skip generation
+    res = run_stage_scenes(
+        paths=temp_project_paths,
+        scenes_data=scenes_data,
+        style="color_whiteboard",
+        force=False,
+        resume_from_scene=2,
+    )
+    
+    assert len(res) == 2
+    mock_generate_scenes.assert_not_called()

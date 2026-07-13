@@ -172,31 +172,32 @@ def run_stage_scenes(
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
     gdrive_folder_id: Optional[str] = None,
+    resume_from_scene: Optional[int] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """Run scene image generation stage, skipping if all expected scene images exist."""
     expected_paths = []
+    for scene in scenes_data:
+        idx = scene["index"]
+        img_path = paths.scenes_dir / f"scene_{idx:02d}.png"
+        expected_paths.append(img_path)
     
     # If not forcing everything and no specific scenes are forced, check if all exist
     if not force and not force_scenes:
         all_exist = True
         for scene in scenes_data:
             idx = scene["index"]
+            if resume_from_scene is not None and idx < resume_from_scene:
+                continue
             img_path = paths.scenes_dir / f"scene_{idx:02d}.png"
-            expected_paths.append(img_path)
             if not img_path.exists():
                 all_exist = False
 
         if all_exist:
             if verbose:
-                print(f"ℹ️ All {len(scenes_data)} scene images already exist in: {paths.scenes_dir}")
+                print(f"ℹ️ All expected scene images already exist in: {paths.scenes_dir}")
                 print("   Skipping image generation to save credits. Set force=True to regenerate.")
             return expected_paths
-    else:
-        for scene in scenes_data:
-            idx = scene["index"]
-            img_path = paths.scenes_dir / f"scene_{idx:02d}.png"
-            expected_paths.append(img_path)
 
     return generate_scenes(
         scenes=scenes_data,
@@ -205,6 +206,7 @@ def run_stage_scenes(
         force=force,
         force_scenes=force_scenes,
         gdrive_folder_id=gdrive_folder_id,
+        resume_from_scene=resume_from_scene,
         verbose=verbose,
     )
 
@@ -219,6 +221,7 @@ def run_stage_assembly(
     ken_burns: bool = True,
     force: bool = False,
     gdrive_folder_id: Optional[str] = None,
+    resume_from_scene: Optional[int] = None,
     verbose: bool = True,
 ) -> Path:
     """Run video assembly stage, skipping if final video already exists."""
@@ -250,6 +253,7 @@ def run_stage_assembly(
         bgm_volume=bgm_volume,
         ken_burns=ken_burns,
         gdrive_folder_id=gdrive_folder_id,
+        resume_from_scene=resume_from_scene,
         verbose=verbose,
     )
     return paths.final_video
@@ -337,6 +341,7 @@ def run_pipeline(
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
     gdrive_folder_id: Optional[str] = None,
+    resume_from_scene: Optional[int] = None,
     verbose: bool = True,
 ) -> dict:
     """
@@ -419,6 +424,7 @@ def continue_after_script_review(
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
     gdrive_folder_id: Optional[str] = None,
+    resume_from_scene: Optional[int] = None,
     verbose: bool = True,
 ) -> dict:
     """Continue the pipeline after script review approval."""
@@ -460,6 +466,7 @@ def continue_after_script_review(
         force=force,
         force_scenes=force_scenes,
         gdrive_folder_id=gdrive_folder_id,
+        resume_from_scene=resume_from_scene,
         verbose=verbose,
     )
     results["scenes"] = [str(p) for p in image_paths]
@@ -480,6 +487,7 @@ def continue_after_script_review(
         ken_burns=ken_burns,
         force=force,
         gdrive_folder_id=gdrive_folder_id,
+        resume_from_scene=resume_from_scene,
         verbose=verbose,
     )
     results["video"] = str(video_path)
