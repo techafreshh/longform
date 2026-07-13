@@ -107,54 +107,86 @@ def _get_available_imagen_models(client, is_vertex: bool, verbose: bool = True) 
 
 def _try_gemini_image_generation(client, model_name: str, prompt: str, types, verbose: bool = True) -> Optional[bytes]:
     """Try generating an image using Gemini's generate_content with IMAGE response modality."""
-    try:
-        if verbose:
-            print(f"    🎨 Trying Gemini model {model_name} (generate_content)...")
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
+    max_retries = 5
+    base_delay = 5  # seconds
+    for attempt in range(max_retries):
+        try:
+            if verbose:
+                if attempt > 0:
+                    print(f"    🎨 Trying Gemini model {model_name} (generate_content) - Attempt {attempt+1}/{max_retries}...")
+                else:
+                    print(f"    🎨 Trying Gemini model {model_name} (generate_content)...")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                )
             )
-        )
-        # Extract image bytes from the response
-        if response and response.candidates:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    return part.inline_data.data
-    except Exception as e:
-        if verbose:
+            # Extract image bytes from the response
+            if response and response.candidates:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        return part.inline_data.data
+            break  # If we got response but no image data found, do not retry
+        except Exception as e:
             err_msg = str(e)
-            if "404" in err_msg or "not found" in err_msg.lower():
-                print(f"    ⚠️ Gemini ({model_name}) not available: {err_msg[:200]}.")
-            else:
-                print(f"    ⚠️ Gemini ({model_name}) failed: {err_msg[:200]}.")
+            is_429 = "429" in err_msg or "resource_exhausted" in err_msg.lower() or "resource exhausted" in err_msg.lower()
+            if is_429 and attempt < max_retries - 1:
+                sleep_time = base_delay * (2 ** attempt)
+                if verbose:
+                    print(f"    ⚠️ Gemini ({model_name}) resource exhausted: {err_msg[:120]}. Retrying in {sleep_time}s...")
+                time.sleep(sleep_time)
+                continue
+            
+            if verbose:
+                if "404" in err_msg or "not found" in err_msg.lower():
+                    print(f"    ⚠️ Gemini ({model_name}) not available: {err_msg[:200]}.")
+                else:
+                    print(f"    ⚠️ Gemini ({model_name}) failed: {err_msg[:200]}.")
+            break
     return None
 
 
 def _try_imagen_generation(client, model_name: str, prompt: str, types, verbose: bool = True) -> Optional[bytes]:
     """Try generating an image using Imagen's generate_images endpoint."""
-    try:
-        if verbose:
-            print(f"    🎨 Trying Imagen model {model_name} (generate_images)...")
-        result = client.models.generate_images(
-            model=model_name,
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="16:9",
-                output_mime_type="image/png",
+    max_retries = 5
+    base_delay = 5  # seconds
+    for attempt in range(max_retries):
+        try:
+            if verbose:
+                if attempt > 0:
+                    print(f"    🎨 Trying Imagen model {model_name} (generate_images) - Attempt {attempt+1}/{max_retries}...")
+                else:
+                    print(f"    🎨 Trying Imagen model {model_name} (generate_images)...")
+            result = client.models.generate_images(
+                model=model_name,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="16:9",
+                    output_mime_type="image/png",
+                )
             )
-        )
-        if result and result.generated_images:
-            return result.generated_images[0].image.image_bytes
-    except Exception as e:
-        if verbose:
+            if result and result.generated_images:
+                return result.generated_images[0].image.image_bytes
+            break
+        except Exception as e:
             err_msg = str(e)
-            if "404" in err_msg or "not found" in err_msg.lower():
-                print(f"    ⚠️ Imagen ({model_name}) not available: {err_msg[:200]}.")
-            else:
-                print(f"    ⚠️ Imagen ({model_name}) failed: {err_msg[:200]}.")
+            is_429 = "429" in err_msg or "resource_exhausted" in err_msg.lower() or "resource exhausted" in err_msg.lower()
+            if is_429 and attempt < max_retries - 1:
+                sleep_time = base_delay * (2 ** attempt)
+                if verbose:
+                    print(f"    ⚠️ Imagen ({model_name}) resource exhausted: {err_msg[:120]}. Retrying in {sleep_time}s...")
+                time.sleep(sleep_time)
+                continue
+
+            if verbose:
+                if "404" in err_msg or "not found" in err_msg.lower():
+                    print(f"    ⚠️ Imagen ({model_name}) not available: {err_msg[:200]}.")
+                else:
+                    print(f"    ⚠️ Imagen ({model_name}) failed: {err_msg[:200]}.")
+            break
     return None
 
 
