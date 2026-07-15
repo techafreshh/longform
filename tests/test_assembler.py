@@ -92,3 +92,22 @@ def test_assemble_video_skips_cached_clip(
     # _render_scene_clip should NOT be called since it is cached and valid!
     mock_render.assert_not_called()
 
+
+def test_word_level_srt():
+    from src.assembler import _word_level_srt
+    timestamps = [
+        {"word": "This", "start": 0.0, "end": 0.5},
+        {"word": "is", "start": 0.5, "end": 1.0},
+        {"word": "a", "start": 1.0, "end": 1.5},
+        {"word": "test", "start": 1.5, "end": 2.0},
+    ]
+    srt = _word_level_srt(timestamps, words_per_group=4, highlight_color="#FFCC00")
+    
+    # We expect 4 entries since there are 4 words in the group
+    # Each entry should highlight exactly one word in sequence
+    assert "1\n00:00:00,000 --> 00:00:00,500\n<font color=\"#FFCC00\">THIS</font> IS A TEST" in srt
+    assert "2\n00:00:00,500 --> 00:00:01,000\nTHIS <font color=\"#FFCC00\">IS</font> A TEST" in srt
+    assert "3\n00:00:01,000 --> 00:00:01,500\nTHIS IS <font color=\"#FFCC00\">A</font> TEST" in srt
+    assert "4\n00:00:01,500 --> 00:00:02,000\nTHIS IS A <font color=\"#FFCC00\">TEST</font>" in srt
+
+

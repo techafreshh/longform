@@ -9,7 +9,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-from .config import FISH_API_KEY, FISH_VOICE_ID
+from .config import FISH_API_KEY, FISH_VOICE_ID, PAUSE_BETWEEN_SCENES
 
 
 @dataclass
@@ -90,9 +90,10 @@ def generate_voice_fish(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     segments = []
-    for scene in scenes:
+    for i, scene in enumerate(scenes):
         idx = scene["index"]
         text = scene["narration"]
+        is_last = (i == len(scenes) - 1)
 
         if verbose:
             print(f"  🎙️ Generating voice for scene {idx}/{len(scenes)}...")
@@ -123,6 +124,9 @@ def generate_voice_fish(
 
         # Get duration
         duration = _get_audio_duration(audio_path)
+        if not is_last:
+            duration += PAUSE_BETWEEN_SCENES
+
         segments.append(VoiceSegment(
             index=idx,
             text=text,
@@ -135,7 +139,8 @@ def generate_voice_fish(
     _combine_audio(segments, combined, verbose)
 
     # Generate word-level timestamps with Whisper (if available)
-    timestamps = _transcribe_timestamps(combined, verbose)
+    script_text = "\n\n".join(s["narration"] for s in scenes)
+    timestamps = _transcribe_timestamps(combined, script_text, verbose)
 
     total_duration = sum(s.duration for s in segments)
 
@@ -201,9 +206,10 @@ def generate_voice_qwen(
     output_dir.mkdir(parents=True, exist_ok=True)
     segments = []
 
-    for scene in scenes:
+    for i, scene in enumerate(scenes):
         idx = scene["index"]
         text = scene["narration"]
+        is_last = (i == len(scenes) - 1)
 
         if verbose:
             print(f"  🎙️ Generating voice for scene {idx}/{len(scenes)}...")
@@ -240,6 +246,9 @@ def generate_voice_qwen(
             _create_silence(audio_path, duration=len(text.split()) * 0.4)
 
         duration = _get_audio_duration(audio_path)
+        if not is_last:
+            duration += PAUSE_BETWEEN_SCENES
+
         segments.append(VoiceSegment(
             index=idx,
             text=text,
@@ -255,7 +264,8 @@ def generate_voice_qwen(
 
     combined = output_dir / "voiceover.wav"
     _combine_audio(segments, combined, verbose)
-    timestamps = _transcribe_timestamps(combined, verbose)
+    script_text = "\n\n".join(s["narration"] for s in scenes)
+    timestamps = _transcribe_timestamps(combined, script_text, verbose)
     total_duration = sum(s.duration for s in segments)
 
     if verbose:
@@ -278,11 +288,17 @@ def _combine_audio(segments: list[VoiceSegment], output: Path, verbose: bool = T
     if not segments:
         return
 
+    # Generate the pause WAV file
+    pause_path = output.parent / "pause_silence.wav"
+    _create_silence(pause_path, duration=PAUSE_BETWEEN_SCENES)
+
     # Create a concat file list
     list_file = output.parent / "concat_list.txt"
     with open(list_file, "w") as f:
-        for seg in segments:
+        for i, seg in enumerate(segments):
             f.write(f"file '{seg.audio_path.resolve()}'\n")
+            if i < len(segments) - 1:
+                f.write(f"file '{pause_path.resolve()}'\n")
 
     cmd = [
         "ffmpeg", "-y",
@@ -301,6 +317,7 @@ def _combine_audio(segments: list[VoiceSegment], output: Path, verbose: bool = T
 
     # Clean up
     list_file.unlink(missing_ok=True)
+    pause_path.unlink(missing_ok=True)
 
 
 def _get_audio_duration(path: Path) -> float:
@@ -328,7 +345,7 @@ def _create_silence(path: Path, duration: float = 5.0, sample_rate: int = 44100)
         wav.writeframes(struct.pack(f"<{n_frames}h", *([0] * n_frames)))
 
 
-def _transcribe_timestamps(audio_path: Path, verbose: bool = True) -> list[dict]:
+def _transcribe_timestamps(audio_path: Path, script_text: Optional[str] = None, verbose: bool = True) -> list[dict]:
     """
     Generate word-level timestamps using Whisper.
     Returns empty list if Whisper is not available.
@@ -345,10 +362,14 @@ def _transcribe_timestamps(audio_path: Path, verbose: bool = True) -> list[dict]
 
     try:
         model = whisper.load_model("base")
+        # Direct Whisper to transcribe accurately matching original script vocabulary/phrasing
+        # Whisper initial_prompt expects ~224 tokens (~1000 characters) limit
+        initial_prompt = script_text[:1000] if script_text else None
         result = model.transcribe(
             str(audio_path),
             word_timestamps=True,
             language="en",
+            initial_prompt=initial_prompt,
         )
 
         timestamps = []

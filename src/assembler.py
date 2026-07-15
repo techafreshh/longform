@@ -95,7 +95,9 @@ def generate_subtitles(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if word_timestamps:
-        srt_content = _word_level_srt(word_timestamps)
+        preset = STYLE_PRESETS.get(style, STYLE_PRESETS["color_whiteboard"])
+        highlight_color = preset.get("subtitle_highlight", "#FFCC00")
+        srt_content = _word_level_srt(word_timestamps, highlight_color=highlight_color)
     else:
         srt_content = _scene_level_srt(timings)
 
@@ -112,8 +114,8 @@ def _format_srt_time(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
-def _word_level_srt(timestamps: list[dict], words_per_group: int = 6) -> str:
-    """Create SRT from word-level timestamps, grouping words."""
+def _word_level_srt(timestamps: list[dict], words_per_group: int = 6, highlight_color: str = "#FFCC00") -> str:
+    """Create SRT from word-level timestamps, grouping words and highlighting the active word."""
     srt_entries = []
     idx = 1
 
@@ -122,16 +124,27 @@ def _word_level_srt(timestamps: list[dict], words_per_group: int = 6) -> str:
         if not group:
             continue
 
-        start = group[0]["start"]
-        end = group[-1]["end"]
-        text = " ".join(w["word"] for w in group)
+        for word_index, active_word_info in enumerate(group):
+            start = active_word_info["start"]
+            end = active_word_info["end"]
 
-        srt_entries.append(
-            f"{idx}\n"
-            f"{_format_srt_time(start)} --> {_format_srt_time(end)}\n"
-            f"{text}\n"
-        )
-        idx += 1
+            # Format words, wrapping the active word in color tags
+            words_formatted = []
+            for j, w in enumerate(group):
+                word_text = w["word"].upper()
+                if j == word_index:
+                    words_formatted.append(f'<font color="{highlight_color}">{word_text}</font>')
+                else:
+                    words_formatted.append(word_text)
+
+            text = " ".join(words_formatted)
+
+            srt_entries.append(
+                f"{idx}\n"
+                f"{_format_srt_time(start)} --> {_format_srt_time(end)}\n"
+                f"{text}\n"
+            )
+            idx += 1
 
     return "\n".join(srt_entries)
 
@@ -164,7 +177,7 @@ def _scene_level_srt(timings: list[SceneTiming]) -> str:
             srt_entries.append(
                 f"{idx}\n"
                 f"{_format_srt_time(start)} --> {_format_srt_time(end)}\n"
-                f"{chunk}\n"
+                f"{chunk.upper()}\n"
             )
             idx += 1
 
@@ -584,9 +597,9 @@ def _finalize_video(
         force_style = (
             f"FontSize={font_size},"
             f"PrimaryColour=&H00{sub_color[4:6]}{sub_color[2:4]}{sub_color[0:2]},"
-            f"BackColour=&H80{sub_bg},"
-            f"BorderStyle=4,"
-            f"Outline=0,"
+            f"BackColour=&H00000000,"
+            f"BorderStyle=1,"
+            f"Outline=3,"
             f"Shadow=0,"
             f"MarginV={margin_v},"
             f"Alignment=2,"

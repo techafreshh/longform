@@ -92,6 +92,7 @@ def run_stage_script(
         additional_prompt=additional_prompt,
         model=model,
         output_path=paths.script_file,
+        reference_scripts_dir=paths.reference_scripts_dir,
         verbose=verbose,
     )
     script.save_scenes_json(scenes_json_path)

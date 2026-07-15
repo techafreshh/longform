@@ -28,6 +28,10 @@ GCP_PROJECT = os.getenv("GCP_PROJECT", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 IMAGEN_MODEL = os.getenv("IMAGEN_MODEL", "gemini-3.1-flash-image")
 
+# Pacing Settings
+PAUSE_BETWEEN_SCENES = float(os.getenv("PAUSE_BETWEEN_SCENES", "0.8"))
+
+
 
 # ---------------------------------------------------------------------------
 # Visual Style Presets
@@ -46,6 +50,7 @@ STYLE_PRESETS = {
         "text_color": "#1A1A1A",
         "subtitle_bg": "rgba(0,0,0,0.6)",
         "subtitle_color": "#FFFFFF",
+        "subtitle_highlight": "#FFCC00",
         "transition": "fade",
         "transition_duration": 0.5,
     },
@@ -61,6 +66,7 @@ STYLE_PRESETS = {
         "text_color": "#F5F5F0",
         "subtitle_bg": "rgba(0,0,0,0.7)",
         "subtitle_color": "#F5F5F0",
+        "subtitle_highlight": "#FFCC00",
         "transition": "fade",
         "transition_duration": 0.5,
     },
@@ -138,6 +144,10 @@ class ProjectPaths:
     def seo_file(self) -> Path:
         return self.project_dir / "seo.json"
 
+    @property
+    def reference_scripts_dir(self) -> Path:
+        return self.base_dir / "reference_scripts"
+
     def ensure_dirs(self):
         """Create all necessary directories."""
         for d in [
@@ -147,6 +157,7 @@ class ProjectPaths:
             self.audio_dir,
             self.output_dir,
             self.thumbnail_dir,
+            self.reference_scripts_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
 
@@ -175,7 +186,7 @@ SCRIPT_SYSTEM_PROMPT = """You are a top-tier YouTube scriptwriter specializing i
 Write a script for a {target_length} educational video. Follow these rules:
 
 ## Structure
-- **Hook (0:00-0:30):** Start with a provocative question, surprising fact, or relatable scenario. Never start with "Hey guys" or "In this video."
+- **Hook (0:00-0:30):** Start with a provocative question, surprising fact, or relatable scenario. Never start with generic AI transitions or cliches like "Picture this," "Imagine a world," "Think about it," "So," "Have you ever wondered," "Hey guys," or "In this video." Start directly with the hook.
 - **Setup (0:30-2:00):** Frame the problem or question clearly. Why should the viewer care?
 - **Body (2:00-{body_end}):** Break into 3-5 clear sections. Each section = one core idea.
 - **Climax ({body_end}-{climax_end}):** The "aha moment" — the most surprising or satisfying insight.
@@ -183,7 +194,7 @@ Write a script for a {target_length} educational video. Follow these rules:
 
 ## Scene Markers
 Insert `[SCENE: description]` markers throughout. Each scene = one whiteboard illustration.
-- A scene should last 15-45 seconds of narration
+- A scene should last 10-20 seconds of narration (approx. 25-50 words). Aim for a higher visual pacing/tempo to keep the viewer visually engaged.
 - Describe what the illustration should show (characters, diagrams, metaphors)
 - Aim for {scene_count} scenes total
 
@@ -193,6 +204,12 @@ Insert `[SCENE: description]` markers throughout. Each scene = one whiteboard il
 - Short sentences. Vary rhythm. Pause for emphasis.
 - Build curiosity — plant questions early, answer them later.
 - No filler. Every sentence earns its place.
+- **TTS-Optimized Punctuation**: Neural TTS engines generate emotion and intonation based on punctuation cues. Write the narration using these specific formatting guidelines to guide the voice actor model:
+  - Use ellipses (`...`) to mark suspenseful or dramatic pauses.
+  - Use em-dashes (`—`) to denote natural conversational pauses or rapid explanations.
+  - Use exclamations (`!`) when introducing high-energy or surprising revelations to raise vocal excitement.
+  - Vary the pacing by alternating short, punchy statements with detailed explanations.
+  - Insert commas where the narrator should naturally breathe.
 
 ## Format
 Output the script as clean markdown. Each scene marker should be on its own line.

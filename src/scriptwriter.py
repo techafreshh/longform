@@ -81,8 +81,8 @@ def _estimate_scene_count(target_length: str) -> int:
     else:
         avg_minutes = 10  # default
 
-    # ~2-3 scenes per minute for whiteboard style
-    return max(8, int(avg_minutes * 2.5))
+    # ~4 scenes per minute for whiteboard style (approx 15s per scene)
+    return max(8, int(avg_minutes * 4.0))
 
 
 def _estimate_timestamps(target_length: str) -> tuple[str, str]:
@@ -107,6 +107,7 @@ def generate_script(
     additional_prompt: str = "",
     model: Optional[str] = None,
     output_path: Optional[Path] = None,
+    reference_scripts_dir: Optional[Path] = None,
     verbose: bool = True,
 ) -> Script:
     """
@@ -121,6 +122,7 @@ def generate_script(
         additional_prompt: Extra direction.
         model: LLM model to use (defaults to DEFAULT_MODEL).
         output_path: Where to save the raw script.
+        reference_scripts_dir: Directory containing reference transcripts to emulate.
         verbose: Print progress.
 
     Returns:
@@ -143,11 +145,53 @@ def generate_script(
         style=style,
     )
 
+    # Load style reference scripts if directory exists
+    reference_content = ""
+    dirs_to_check = []
+    if reference_scripts_dir:
+        dirs_to_check.append(reference_scripts_dir)
+    if output_path:
+        dirs_to_check.append(output_path.parent / "reference_scripts")
+
+    ref_parts = []
+    seen_files = set()
+    for d in dirs_to_check:
+        if d and d.exists():
+            ref_files = list(d.glob("*.txt")) + list(d.glob("*.md"))
+            for rf in ref_files:
+                if rf.name in seen_files:
+                    continue
+                try:
+                    content = rf.read_text(encoding="utf-8").strip()
+                    if content:
+                        ref_parts.append(f"### Reference: {rf.name}\n{content}")
+                        seen_files.add(rf.name)
+                except Exception as e:
+                    if verbose:
+                        print(f"⚠️ Failed to read reference script {rf.name}: {e}")
+        if ref_parts:
+            reference_content = "\n\n".join(ref_parts)
+            if verbose:
+                print(f"📚 Loaded {len(ref_parts)} reference script(s) for style emulation.")
+
     user_message = f"""Here is the research material for this video:
 
 ---
 {research}
 ---
+"""
+
+    if reference_content:
+        user_message += f"""
+
+Here are reference transcripts of successful high-performing videos. Emulate their vocabulary, hook styling, transitions, conversational rhythm, and pacing:
+
+---
+{reference_content}
+---
+"""
+
+    user_message += f"""
 
 Now write the complete script with [SCENE: description] markers. 
 Remember: {scene_count} scenes, {target_length} target length, {style} visual style."""
