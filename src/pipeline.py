@@ -12,6 +12,8 @@ from .scene_gen import generate_scenes, generate_thumbnail
 from .assembler import build_scene_timings, generate_subtitles, assemble_video
 from .seo import generate_seo
 from .stock import search_stock_footage
+from .youtube_reference import search_youtube_videos, download_youtube_transcript
+
 
 
 def _upload_if_gdrive_active(gdrive_folder_id: Optional[str], file_path: Path, subfolder: Optional[str] = None):
@@ -338,6 +340,8 @@ def run_pipeline(
     skip_research: bool = False,
     skip_voice: bool = False,
     skip_scenes: bool = False,
+    skip_reference_fetch: bool = False,
+    reference_count: int = 3,
     model: Optional[str] = None,
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
@@ -383,6 +387,21 @@ def run_pipeline(
             verbose=verbose,
         )
         results["research"] = str(paths.research_file)
+
+    # --- Stage 1.5: Reference Scripts ---
+    if not skip_reference_fetch:
+        if verbose:
+            print("\n" + "=" * 60)
+            print("🎥 STAGE 1.5: Fetching Reference Scripts from YouTube")
+            print("=" * 60)
+        run_stage_reference_scripts(
+            paths=paths,
+            topic=topic,
+            count=reference_count,
+            force=force,
+            gdrive_folder_id=gdrive_folder_id,
+            verbose=verbose,
+        )
 
     # --- Stage 2: Script ---
     if verbose:
@@ -538,3 +557,47 @@ def continue_after_script_review(
         print(f"  Title: {seo.get('title', 'N/A')}")
 
     return results
+
+
+def run_stage_reference_scripts(
+    paths: ProjectPaths,
+    topic: str,
+    count: int = 3,
+    force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
+    verbose: bool = True,
+) -> list[Path]:
+    """Search and download YouTube transcripts for reference scripts in project_dir."""
+    project_ref_dir = paths.project_dir / "reference_scripts"
+
+    if project_ref_dir.exists() and not force:
+        existing = list(project_ref_dir.glob("*.txt"))
+        if existing:
+            if verbose:
+                print(f"ℹ️ Reference transcripts already exist in: {project_ref_dir}")
+                print("   Skipping download to save bandwidth. Set force=True to download new ones.")
+            return existing
+
+    project_ref_dir.mkdir(parents=True, exist_ok=True)
+
+    if verbose:
+        print(f"🔍 Searching YouTube for references related to: '{topic}'...")
+
+    videos = search_youtube_videos(topic, count=count)
+    if not videos:
+        if verbose:
+            print("⚠️ No reference videos found on YouTube.")
+        return []
+
+    downloaded = []
+    for v in videos:
+        v_id = v["video_id"]
+        title = v["title"]
+        file_path = download_youtube_transcript(v_id, title, project_ref_dir, verbose=verbose)
+        if file_path:
+            downloaded.append(file_path)
+            # Upload immediately if gdrive is configured
+            _upload_if_gdrive_active(gdrive_folder_id, file_path, "reference_scripts")
+
+    return downloaded
+
