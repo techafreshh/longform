@@ -225,6 +225,7 @@ def run_stage_assembly(
     force: bool = False,
     gdrive_folder_id: Optional[str] = None,
     resume_from_scene: Optional[int] = None,
+    max_workers: Optional[int] = None,
     verbose: bool = True,
 ) -> Path:
     """Run video assembly stage, skipping if final video already exists."""
@@ -257,6 +258,7 @@ def run_stage_assembly(
         ken_burns=ken_burns,
         gdrive_folder_id=gdrive_folder_id,
         resume_from_scene=resume_from_scene,
+        max_workers=max_workers,
         verbose=verbose,
     )
     return paths.final_video
@@ -445,6 +447,7 @@ def continue_after_script_review(
     force_scenes: Optional[list[int]] = None,
     gdrive_folder_id: Optional[str] = None,
     resume_from_scene: Optional[int] = None,
+    max_workers: Optional[int] = None,
     verbose: bool = True,
 ) -> dict:
     """Continue the pipeline after script review approval."""
@@ -508,6 +511,7 @@ def continue_after_script_review(
         force=force,
         gdrive_folder_id=gdrive_folder_id,
         resume_from_scene=resume_from_scene,
+        max_workers=max_workers,
         verbose=verbose,
     )
     results["video"] = str(video_path)

@@ -111,3 +111,42 @@ def test_word_level_srt():
     assert "4\n00:00:01,500 --> 00:00:02,000\nTHIS IS A <font color=\"#FFCC00\">TEST</font>" in srt
 
 
+@patch("src.assembler._render_scene_clip")
+@patch("src.assembler._concat_with_transitions")
+@patch("src.assembler._finalize_video")
+@patch("src.assembler._get_duration")
+def test_assemble_video_renders_parallel(
+    mock_duration, mock_finalize, mock_concat, mock_render, tmp_path
+):
+    from src.assembler import assemble_video, SceneTiming
+    
+    # Setup paths
+    output_path = tmp_path / "output" / "video.mp4"
+    image_path1 = tmp_path / "scene_01.png"
+    image_path1.write_bytes(b"mock image 1")
+    image_path2 = tmp_path / "scene_02.png"
+    image_path2.write_bytes(b"mock image 2")
+    
+    # Create timings list
+    timings = [
+        SceneTiming(index=1, image_path=image_path1, start_time=0.0, duration=3.0, narration="Test scene 1"),
+        SceneTiming(index=2, image_path=image_path2, start_time=3.0, duration=2.5, narration="Test scene 2"),
+    ]
+    
+    mock_duration.return_value = 5.5
+    
+    res = assemble_video(
+        timings=timings,
+        voiceover_path=tmp_path / "voice.wav",
+        output_path=output_path,
+        transition_type="none",
+        max_workers=2,
+        verbose=True,
+    )
+    
+    assert res == output_path
+    # _render_scene_clip should be called twice since we have 2 uncached scenes
+    assert mock_render.call_count == 2
+
+
+

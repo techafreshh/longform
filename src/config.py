@@ -28,8 +28,9 @@ GCP_PROJECT = os.getenv("GCP_PROJECT", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 IMAGEN_MODEL = os.getenv("IMAGEN_MODEL", "gemini-3.1-flash-image")
 
-# Pacing Settings
+# Pacing & Rendering Settings
 PAUSE_BETWEEN_SCENES = float(os.getenv("PAUSE_BETWEEN_SCENES", "0.8"))
+RENDER_MAX_WORKERS = int(os.getenv("RENDER_MAX_WORKERS", "4"))
 
 
 

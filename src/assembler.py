@@ -7,7 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-from .config import VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS, STYLE_PRESETS
+from .config import VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS, STYLE_PRESETS, RENDER_MAX_WORKERS
 
 
 @dataclass
@@ -208,6 +208,7 @@ def assemble_video(
     transition_duration: float = 0.5,
     gdrive_folder_id: Optional[str] = None,
     resume_from_scene: Optional[int] = None,
+    max_workers: Optional[int] = None,
     verbose: bool = True,
 ) -> Path:
     """
@@ -258,16 +259,20 @@ def assemble_video(
         # Step 1: Generate per-scene clips with Ken Burns
         if verbose:
             print(f"🎬 Step 1/3: Rendering {len(timings)} scene clips with Ken Burns...")
-        scene_clips = []
+        
+        workers = max_workers if max_workers is not None else RENDER_MAX_WORKERS
+        scene_clips = [None] * len(timings)
         total_scenes = len(timings)
+        render_tasks = []
+
         for idx, timing in enumerate(timings):
             clip_filename = f"clip_{timing.index:02d}_dur_{timing.duration:.2f}.mp4"
             clip_path = clips_cache_dir / clip_filename
+            scene_clips[idx] = clip_path
             
             if resume_from_scene is not None and timing.index < resume_from_scene:
                 if verbose:
                     print(f"   [Scene {idx+1}/{total_scenes}] Scene {timing.index} is before resume index {resume_from_scene}. Skipping...")
-                scene_clips.append(clip_path)
                 continue
 
             # Clean up any stale duration clips for this scene index
@@ -286,19 +291,29 @@ def assemble_video(
                 if verbose:
                     print(f"   [Scene {idx+1}/{total_scenes}] Clip for scene {timing.index} already exists (cached). Skipping...")
             else:
+                is_stale = clip_exists
+                render_tasks.append((idx, timing, clip_path, is_stale))
+
+        if render_tasks:
+            if verbose:
+                print(f"   🚀 Rendering {len(render_tasks)} clips in parallel with {workers} workers...")
+                
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            def render_worker(task):
+                task_idx, t, out_path, is_stale = task
                 if verbose:
-                    if clip_exists:
-                        print(f"   [Scene {idx+1}/{total_scenes}] Clip for scene {timing.index} is stale. Regenerating...")
-                    else:
-                        print(f"   [Scene {idx+1}/{total_scenes}] Rendering clip for scene {timing.index} ({timing.duration:.1f}s)...")
+                    status_str = "stale (regenerating)" if is_stale else "rendering"
+                    print(f"   [Scene {task_idx+1}/{total_scenes}] Started {status_str} clip for scene {t.index} ({t.duration:.1f}s)...")
+                
                 _render_scene_clip(
-                    image_path=timing.image_path,
-                    output_path=clip_path,
-                    duration=timing.duration,
+                    image_path=t.image_path,
+                    output_path=out_path,
+                    duration=t.duration,
                     ken_burns=ken_burns,
-                    scene_index=timing.index,
+                    scene_index=t.index,
                     encoder=encoder,
-                    verbose=verbose,
+                    verbose=False,
                 )
                 
                 # Upload scene clip immediately if gdrive is configured
@@ -307,11 +322,22 @@ def assemble_video(
                         from .gdrive import get_gdrive_service, upload_file_to_drive_folder
                         service = get_gdrive_service()
                         if service:
-                            upload_file_to_drive_folder(service, gdrive_folder_id, clip_path, "clips_cache")
+                            upload_file_to_drive_folder(service, gdrive_folder_id, out_path, "clips_cache")
                     except Exception as upload_err:
-                        print(f"   ⚠️ Failed to upload clip for scene {timing.index} to Google Drive: {upload_err}")
-                        
-            scene_clips.append(clip_path)
+                        print(f"   ⚠️ Failed to upload clip for scene {t.index} to Google Drive: {upload_err}")
+                
+                if verbose:
+                    print(f"   [Scene {task_idx+1}/{total_scenes}] Finished rendering clip for scene {t.index}.")
+                return t.index
+
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(render_worker, task): task for task in render_tasks}
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"   ❌ Error rendering clip in worker thread: {e}")
+                        raise e
 
         # Step 2: Concatenate clips with transitions
         joined_path = clips_cache_dir / "joined.mp4"
