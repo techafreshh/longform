@@ -9,7 +9,45 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-from .config import FISH_API_KEY, FISH_VOICE_ID, PAUSE_BETWEEN_SCENES
+from .config import FISH_API_KEY, FISH_VOICE_ID
+
+
+def _prepare_text_for_tts(text: str) -> str:
+    """Clean text and convert punctuation pauses to Fish Audio S2 inline tags.
+
+    Fish Audio S2 models use natural-language inline tags like [pause] and
+    [long pause] for breath control — standard punctuation (ellipsis, em-dash)
+    is largely ignored for pacing.  This function converts script-level pause
+    cues into the tags the model actually respects.
+    """
+    import re
+    # Strip any residual markdown emphasis markers
+    text = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', text)
+    text = re.sub(r'_{1,3}(.+?)_{1,3}', r'\1', text)
+    # Strip markdown headers and list bullets
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*[-*]\s+', '', text, flags=re.MULTILINE)
+    # Convert ellipsis to Fish Audio pause tag
+    text = re.sub(r'\.{3,}', ' [pause] ', text)
+    # Convert em-dash to Fish Audio pause tag
+    text = text.replace('\u2014', ' [pause] ')
+    # Convert double newlines to long pause
+    text = re.sub(r'\n\s*\n', ' [long pause] ', text)
+    # Collapse remaining newlines to spaces
+    text = re.sub(r'\n', ' ', text)
+    # Clean up multiple spaces
+    text = re.sub(r' {2,}', ' ', text)
+    return text.strip()
+
+
+def _strip_markdown_for_tts(text: str) -> str:
+    """Strip markdown formatting from text for TTS engines that respect punctuation natively (e.g. Qwen)."""
+    import re
+    text = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', text)
+    text = re.sub(r'_{1,3}(.+?)_{1,3}', r'\1', text)
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*[-*]\s+', '', text, flags=re.MULTILINE)
+    return text.strip()
 
 
 @dataclass
@@ -92,7 +130,7 @@ def generate_voice_fish(
     segments = []
     for i, scene in enumerate(scenes):
         idx = scene["index"]
-        text = scene["narration"]
+        text = _prepare_text_for_tts(scene["narration"])
         is_last = (i == len(scenes) - 1)
 
         if verbose:
@@ -124,8 +162,6 @@ def generate_voice_fish(
 
         # Get duration
         duration = _get_audio_duration(audio_path)
-        if not is_last:
-            duration += PAUSE_BETWEEN_SCENES
 
         segments.append(VoiceSegment(
             index=idx,
@@ -208,7 +244,7 @@ def generate_voice_qwen(
 
     for i, scene in enumerate(scenes):
         idx = scene["index"]
-        text = scene["narration"]
+        text = _strip_markdown_for_tts(scene["narration"])
         is_last = (i == len(scenes) - 1)
 
         if verbose:
@@ -246,8 +282,6 @@ def generate_voice_qwen(
             _create_silence(audio_path, duration=len(text.split()) * 0.4)
 
         duration = _get_audio_duration(audio_path)
-        if not is_last:
-            duration += PAUSE_BETWEEN_SCENES
 
         segments.append(VoiceSegment(
             index=idx,
@@ -288,17 +322,11 @@ def _combine_audio(segments: list[VoiceSegment], output: Path, verbose: bool = T
     if not segments:
         return
 
-    # Generate the pause WAV file
-    pause_path = output.parent / "pause_silence.wav"
-    _create_silence(pause_path, duration=PAUSE_BETWEEN_SCENES)
-
-    # Create a concat file list
+    # Create a concat file list — no artificial silence between segments
     list_file = output.parent / "concat_list.txt"
     with open(list_file, "w") as f:
-        for i, seg in enumerate(segments):
+        for seg in segments:
             f.write(f"file '{seg.audio_path.resolve()}'\n")
-            if i < len(segments) - 1:
-                f.write(f"file '{pause_path.resolve()}'\n")
 
     cmd = [
         "ffmpeg", "-y",
@@ -317,7 +345,6 @@ def _combine_audio(segments: list[VoiceSegment], output: Path, verbose: bool = T
 
     # Clean up
     list_file.unlink(missing_ok=True)
-    pause_path.unlink(missing_ok=True)
 
 
 def _get_audio_duration(path: Path) -> float:

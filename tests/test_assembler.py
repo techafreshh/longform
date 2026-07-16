@@ -105,10 +105,63 @@ def test_word_level_srt():
     
     # We expect 4 entries since there are 4 words in the group
     # Each entry should highlight exactly one word in sequence
-    assert "1\n00:00:00,000 --> 00:00:00,500\n<font color=\"#FFCC00\">THIS</font> IS A TEST" in srt
-    assert "2\n00:00:00,500 --> 00:00:01,000\nTHIS <font color=\"#FFCC00\">IS</font> A TEST" in srt
-    assert "3\n00:00:01,000 --> 00:00:01,500\nTHIS IS <font color=\"#FFCC00\">A</font> TEST" in srt
-    assert "4\n00:00:01,500 --> 00:00:02,000\nTHIS IS A <font color=\"#FFCC00\">TEST</font>" in srt
+    # Words 1-3 extend to the next word's start (which equals their end here — no gap)
+    assert '1\n00:00:00,000 --> 00:00:00,500\n<font color="#FFCC00">THIS</font> IS A TEST' in srt
+    assert '2\n00:00:00,500 --> 00:00:01,000\nTHIS <font color="#FFCC00">IS</font> A TEST' in srt
+    assert '3\n00:00:01,000 --> 00:00:01,500\nTHIS IS <font color="#FFCC00">A</font> TEST' in srt
+    # Last word in last group uses its own end time
+    assert '4\n00:00:01,500 --> 00:00:02,000\nTHIS IS A <font color="#FFCC00">TEST</font>' in srt
+
+
+def test_word_level_srt_gap_free():
+    """Verify that gaps between words are bridged — each cue extends to the next word's start."""
+    from src.assembler import _word_level_srt
+    timestamps = [
+        {"word": "Hello", "start": 0.0, "end": 0.4},
+        {"word": "world", "start": 0.8, "end": 1.2},   # 400ms gap after "Hello"
+        {"word": "this", "start": 1.5, "end": 1.9},     # 300ms gap after "world"
+    ]
+    srt = _word_level_srt(timestamps, words_per_group=3, highlight_color="#FFCC00")
+
+    # Word 1 ("Hello") should extend to word 2's start (0.8), NOT end at 0.4
+    assert '00:00:00,000 --> 00:00:00,800' in srt
+    # Word 2 ("world") should extend to word 3's start (1.5), NOT end at 1.2
+    assert '00:00:00,800 --> 00:00:01,500' in srt
+    # Word 3 ("this") is last in last group — uses its own end (1.9)
+    assert '00:00:01,500 --> 00:00:01,899' in srt
+
+
+def test_word_level_srt_multi_group_overlap():
+    """Verify overlap buffer between groups prevents inter-group flashing."""
+    from src.assembler import _word_level_srt
+    timestamps = [
+        {"word": "First", "start": 0.0, "end": 0.5},
+        {"word": "group", "start": 0.5, "end": 1.0},
+        # Group boundary here
+        {"word": "Second", "start": 1.5, "end": 2.0},
+        {"word": "group", "start": 2.0, "end": 2.5},
+    ]
+    srt = _word_level_srt(timestamps, words_per_group=2, highlight_color="#FFCC00")
+
+    # Last word of first group ("group") should extend toward next group start (1.5)
+    # with overlap buffer of 0.05, so end = max(1.0, 1.5 - 0.05) = 1.45
+    assert '00:00:00,500 --> 00:00:01,449' in srt
+
+
+def test_word_level_srt_strips_asterisks():
+    """Verify that markdown emphasis markers are stripped from subtitle text."""
+    from src.assembler import _word_level_srt
+    timestamps = [
+        {"word": "what", "start": 0.0, "end": 0.5},
+        {"word": "*didn't*", "start": 0.5, "end": 1.0},
+        {"word": "happen", "start": 1.0, "end": 1.5},
+    ]
+    srt = _word_level_srt(timestamps, words_per_group=3, highlight_color="#FFCC00")
+
+    # The asterisks should be stripped
+    assert "DIDN'T" in srt
+    assert "*" not in srt
+
 
 
 @patch("src.assembler._render_scene_clip")

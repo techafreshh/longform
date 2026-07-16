@@ -205,12 +205,13 @@ Insert `[SCENE: description]` markers throughout. Each scene = one whiteboard il
 - Short sentences. Vary rhythm. Pause for emphasis.
 - Build curiosity — plant questions early, answer them later.
 - No filler. Every sentence earns its place.
-- **TTS-Optimized Punctuation**: Neural TTS engines generate emotion and intonation based on punctuation cues. Write the narration using these specific formatting guidelines to guide the voice actor model:
-  - Use ellipses (`...`) to mark suspenseful or dramatic pauses.
-  - Use em-dashes (`—`) to denote natural conversational pauses or rapid explanations.
+- **TTS-Optimized Formatting**: The narration is read aloud by a neural TTS engine. Write with these specific guidelines to guide vocal delivery:
+  - Use `[pause]` inline where there should be a short dramatic or conversational pause.
+  - Use `[long pause]` for extended, suspenseful beats between major ideas.
   - Use exclamations (`!`) when introducing high-energy or surprising revelations to raise vocal excitement.
   - Vary the pacing by alternating short, punchy statements with detailed explanations.
   - Insert commas where the narrator should naturally breathe.
+  - NEVER use markdown formatting like *bold*, **bold**, or _italic_ in narration text. These characters will be read aloud by the TTS engine.
 
 ## Format
 Output the script as clean markdown. Each scene marker should be on its own line.

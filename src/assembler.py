@@ -115,23 +115,43 @@ def _format_srt_time(seconds: float) -> str:
 
 
 def _word_level_srt(timestamps: list[dict], words_per_group: int = 6, highlight_color: str = "#FFCC00") -> str:
-    """Create SRT from word-level timestamps, grouping words and highlighting the active word."""
+    """Create SRT from word-level timestamps, grouping words and highlighting the active word.
+
+    Each cue extends to the next word's start time so the subtitle stays on
+    screen continuously — no flashing between words or groups.
+    """
+    import re
+
     srt_entries = []
     idx = 1
+    OVERLAP_BUFFER = 0.05  # 50ms overlap to prevent inter-group flash
 
     for i in range(0, len(timestamps), words_per_group):
         group = timestamps[i:i + words_per_group]
         if not group:
             continue
 
+        # Check if there's a next group
+        next_group_start = (timestamps[i + words_per_group]["start"]
+                           if (i + words_per_group) < len(timestamps) else None)
+
         for word_index, active_word_info in enumerate(group):
             start = active_word_info["start"]
-            end = active_word_info["end"]
+
+            # Extend to next word's start (no gap) or group boundary
+            if word_index < len(group) - 1:
+                end = group[word_index + 1]["start"]
+            elif next_group_start is not None:
+                # Last word in group: extend slightly past to overlap with next group
+                end = max(active_word_info["end"], next_group_start - OVERLAP_BUFFER)
+            else:
+                end = active_word_info["end"]
 
             # Format words, wrapping the active word in color tags
             words_formatted = []
             for j, w in enumerate(group):
-                word_text = w["word"].upper()
+                # Strip any residual markdown characters (*, _)
+                word_text = re.sub(r'[*_]', '', w["word"]).upper()
                 if j == word_index:
                     words_formatted.append(f'<font color="{highlight_color}">{word_text}</font>')
                 else:

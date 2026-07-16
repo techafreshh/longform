@@ -7,9 +7,9 @@ Automated faceless whiteboard animation YouTube video pipeline. Goes from topic 
 - **Google Sheets integration** — Manage your content calendar, pick topics, track status
 - **Deep research** — Gemini Deep Research API for comprehensive topic analysis
 - **AI scriptwriting** — Claude/Gemini via OpenRouter with scene markers
-- **Voice cloning** — Fish Audio (primary) or Qwen3-TTS (Colab GPU fallback)
+- **Voice cloning & natural pacing** — Fish Audio S2 (primary) with inline `[pause]` / `[long pause]` tag mapping or Qwen3-TTS (Colab GPU fallback)
 - **AI scene generation** — Gemini Flash Image for consistent whiteboard/chalkboard illustrations
-- **Video assembly** — FFmpeg with Ken Burns effects, transitions, and subtitles
+- **Video assembly & gap-free subtitles** — FFmpeg video assembly, automated markdown-stripping safety nets, and continuous word-level subtitles (`_word_level_srt`) that eliminate subtitle flashing/flickering
 - **Thumbnail generation** — 3 AI-generated thumbnail variants
 - **SEO optimization** — Auto-generated titles, descriptions, and tags
 - **Variable visual styles** — Color whiteboard or chalkboard (per-video setting)

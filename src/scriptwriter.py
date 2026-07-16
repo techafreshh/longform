@@ -287,6 +287,9 @@ def _clean_narration(text: str) -> str:
     text = re.sub(r'<!--.*?-->', '', text)
     # Remove markdown headers (## etc)
     text = re.sub(r'^#+\s+.*$', '', text, flags=re.MULTILINE)
+    # Remove markdown emphasis (bold/italic) markers but keep the enclosed text
+    text = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', text)
+    text = re.sub(r'_{1,3}(.+?)_{1,3}', r'\1', text)
     # Remove excessive whitespace
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
