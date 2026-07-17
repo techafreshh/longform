@@ -64,11 +64,13 @@ class Script:
 
 def _get_client() -> OpenAI:
     """Get OpenRouter client."""
-    if not OPENROUTER_API_KEY:
+    import os
+    key = OPENROUTER_API_KEY or os.getenv("OPENROUTER_API_KEY", "")
+    if not key:
         raise ValueError("OPENROUTER_API_KEY is not set. Add it to your .env file.")
     return OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
+        api_key=key,
     )
 
 

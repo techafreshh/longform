@@ -255,6 +255,7 @@ def get_genai_client():
             location=GCP_LOCATION,
         )
     else:
-        if not GOOGLE_API_KEY:
+        key = GOOGLE_API_KEY or os.getenv("GOOGLE_API_KEY", "")
+        if not key:
             raise ValueError("GOOGLE_API_KEY is not set.")
-        return genai.Client(api_key=GOOGLE_API_KEY)
+        return genai.Client(api_key=key)

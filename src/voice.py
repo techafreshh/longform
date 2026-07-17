@@ -113,10 +113,12 @@ def generate_voice_fish(
     except ImportError:
         raise ImportError("Install fish-audio-sdk: pip install fish-audio-sdk")
 
-    if not FISH_API_KEY:
+    import os
+    api_key = FISH_API_KEY or os.getenv("FISH_API_KEY", "")
+    if not api_key:
         raise ValueError("FISH_API_KEY is not set. Add it to your .env file.")
 
-    voice_id = voice_id or FISH_VOICE_ID
+    voice_id = voice_id or FISH_VOICE_ID or os.getenv("FISH_VOICE_ID", "")
     if not voice_id:
         raise ValueError(
             "No voice ID set. Clone your voice at https://fish.audio "
@@ -124,7 +126,7 @@ def generate_voice_fish(
         )
     voice_id = str(voice_id).strip("'\" \t\r\n")
 
-    client = FishAudio(api_key=FISH_API_KEY)
+    client = FishAudio(api_key=api_key)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     segments = []
@@ -439,10 +441,12 @@ def clone_voice_fish(
     except ImportError:
         raise ImportError("Install fish-audio-sdk: pip install fish-audio-sdk")
 
-    if not FISH_API_KEY:
+    import os
+    api_key = FISH_API_KEY or os.getenv("FISH_API_KEY", "")
+    if not api_key:
         raise ValueError("FISH_API_KEY is not set.")
 
-    client = FishAudio(api_key=FISH_API_KEY)
+    client = FishAudio(api_key=api_key)
 
     if verbose:
         print(f"🎤 Cloning voice from {audio_path}...")

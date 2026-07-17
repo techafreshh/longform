@@ -13,7 +13,9 @@ from .config import GOOGLE_API_KEY, RESEARCH_SYSTEM_PROMPT, get_genai_client, US
 
 def _get_client() -> genai.Client:
     """Initialize and return a Gemini client."""
-    if not USE_VERTEX and not GOOGLE_API_KEY:
+    import os
+    key = GOOGLE_API_KEY or os.getenv("GOOGLE_API_KEY", "")
+    if not USE_VERTEX and not key:
         raise ValueError("GOOGLE_API_KEY is not set. Add it to your .env file.")
     return get_genai_client()
 

@@ -1,5 +1,6 @@
 """Google Sheets integration — read topics, update status, write results."""
 
+import os
 import json
 from pathlib import Path
 from typing import Optional
@@ -55,7 +56,7 @@ def get_ready_topics(sheet_id: Optional[str] = None, verbose: bool = True) -> li
     Returns:
         List of dicts with topic info.
     """
-    sheet_id = sheet_id or GOOGLE_SHEET_ID
+    sheet_id = sheet_id or GOOGLE_SHEET_ID or os.getenv("GOOGLE_SHEET_ID", "")
     if not sheet_id:
         raise ValueError("GOOGLE_SHEET_ID is not set.")
 
@@ -101,7 +102,7 @@ def update_status(
         extra_data: Optional dict of additional columns to update
                     (e.g., {"video_url": "...", "drive_link": "..."}).
     """
-    sheet_id = sheet_id or GOOGLE_SHEET_ID
+    sheet_id = sheet_id or GOOGLE_SHEET_ID or os.getenv("GOOGLE_SHEET_ID", "")
     if not sheet_id:
         return
 
@@ -128,7 +129,7 @@ def create_sheet_template(sheet_id: Optional[str] = None):
     Set up the header row in a new Google Sheet.
     Run this once to initialize your content calendar.
     """
-    sheet_id = sheet_id or GOOGLE_SHEET_ID
+    sheet_id = sheet_id or GOOGLE_SHEET_ID or os.getenv("GOOGLE_SHEET_ID", "")
     if not sheet_id:
         raise ValueError("GOOGLE_SHEET_ID is not set.")
 
