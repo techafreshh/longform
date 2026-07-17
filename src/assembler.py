@@ -375,31 +375,15 @@ def assemble_video(
                         print(f"   ❌ Error rendering clip in worker thread: {e}")
                         raise e
 
-        # Step 2: Concatenate clips with transitions
-        joined_path = clips_cache_dir / "joined.mp4"
-        if transition_type != "none" and len(scene_clips) > 1:
-            if verbose:
-                print(f"🔗 Step 2/3: Concatenating clips with {transition_type} transitions...")
-            _concat_with_transitions(
-                clips=scene_clips,
-                output=joined_path,
-                transition=transition_type,
-                transition_duration=transition_duration,
-                encoder=encoder,
-                verbose=verbose,
-            )
-        else:
-            if verbose:
-                print(f"🔗 Step 2/3: Concatenating clips (no transitions)...")
-            _concat_simple(scene_clips, joined_path)
-
-        # Step 3: Add audio (voiceover + optional BGM) and subtitles
+        # Step 2: Concatenate clips, mix audio, and burn subtitles in a single pass
         if verbose:
-            print(f"🔧 Step 3/3: Finalizing video (mixing audio + burning subtitles)...")
-        _finalize_video(
-            video_path=joined_path,
+            print(f"🔗 Step 2/2: Concatenating clips, mixing audio, and burning subtitles in a single pass...")
+        _concat_and_finalize(
+            clips=scene_clips,
             voiceover_path=voiceover_path,
             output_path=output_path,
+            transition_type=transition_type,
+            transition_duration=transition_duration,
             subtitle_path=subtitle_path,
             bgm_path=bgm_path,
             bgm_volume=bgm_volume,
@@ -529,133 +513,63 @@ def _render_scene_clip(
         subprocess.run(cmd_simple, capture_output=True, text=True)
 
 
-def _concat_with_transitions(
+def _build_ffmpeg_cmd(
     clips: list[Path],
-    output: Path,
-    transition: str = "fade",
+    voiceover_path: Path,
+    output_path: Path,
+    transition_type: str = "fade",
     transition_duration: float = 0.5,
+    subtitle_path: Optional[Path] = None,
+    bgm_path: Optional[Path] = None,
+    bgm_volume: float = 0.15,
+    subtitle_style: Optional[dict] = None,
     encoder: str = "libx264",
-    verbose: bool = False,
-):
-    """Concatenate clips with xfade transitions between them."""
-    if len(clips) < 2:
-        _concat_simple(clips, output)
-        return
-
-    # Build the complex filter graph for xfade
+) -> list[str]:
+    """Build the single-pass FFmpeg command combining concatenation, subtitles, and audio mixing."""
     inputs = []
     for clip in clips:
         inputs.extend(["-i", str(clip)])
+    inputs.extend(["-i", str(voiceover_path)])
 
-    durations = [_get_duration(clip) for clip in clips]
+    num_clips = len(clips)
+    voice_idx = num_clips
+    bgm_idx = None
 
-    filter_parts = []
-    current_label = "[0:v]"
-
-    cumulative = 0.0
-    for i in range(len(clips) - 1):
-        offset = cumulative + durations[i] - transition_duration
-        next_label = f"[{i + 1}:v]"
-        out_label = f"[v{i}]" if i < len(clips) - 2 else "[vout]"
-
-        filter_parts.append(
-            f"{current_label}{next_label}xfade=transition={transition}:"
-            f"duration={transition_duration}:offset={offset:.3f}{out_label}"
-        )
-        current_label = out_label
-        cumulative = offset
-
-    filter_graph = ";".join(filter_parts)
-
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", filter_graph,
-        "-map", "[vout]",
-        "-c:v", encoder,
-    ]
-    if encoder == "h264_nvenc":
-        cmd.extend(["-preset", "fast", "-rc:v", "constqp", "-qp", "23"])
-    else:
-        cmd.extend(["-preset", "fast", "-crf", "23"])
-    cmd.append(str(output))
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    # Try CPU encoding if GPU encoding fails
-    if result.returncode != 0 and encoder == "h264_nvenc":
-        if verbose:
-            print("  ⚠️ GPU encoding failed during concatenation. Falling back to CPU...")
-        cmd_cpu = ["ffmpeg", "-y"] + inputs + [
-            "-filter_complex", filter_graph,
-            "-map", "[vout]",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            str(output),
-        ]
-        result = subprocess.run(cmd_cpu, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        if verbose:
-            print(f"  ⚠️ xfade failed, falling back to simple concat")
-            print(f"     Error: {result.stderr[:200]}")
-        _concat_simple(clips, output)
-
-
-def _concat_simple(clips: list[Path], output: Path):
-    """Simple concatenation without transitions."""
-    list_file = output.parent / "concat_list.txt"
-    with open(list_file, "w") as f:
-        for clip in clips:
-            f.write(f"file '{clip.resolve()}'\n")
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", str(list_file),
-        "-c", "copy",
-        str(output),
-    ]
-
-    subprocess.run(cmd, capture_output=True, text=True)
-    list_file.unlink(missing_ok=True)
-
-
-def _finalize_video(
-    video_path: Path,
-    voiceover_path: Path,
-    output_path: Path,
-    subtitle_path: Optional[Path],
-    bgm_path: Optional[Path],
-    bgm_volume: float,
-    subtitle_style: dict,
-    encoder: str,
-    verbose: bool,
-):
-    """Add audio tracks and subtitles to the assembled video."""
-    inputs = ["-i", str(video_path), "-i", str(voiceover_path)]
-    filter_parts = []
-
-    # Audio mixing
     if bgm_path and bgm_path.exists():
         inputs.extend(["-i", str(bgm_path)])
-        filter_parts.append(
-            f"[1:a]volume=1.0[vo];"
-            f"[2:a]volume={bgm_volume}[bgm];"
-            f"[vo][bgm]amix=inputs=2:duration=first[aout]"
-        )
-        audio_map = "[aout]"
-    else:
-        audio_map = "1:a"
+        bgm_idx = num_clips + 1
 
-    # Build subtitle filter
-    sub_filter = ""
+    filter_parts = []
+
+    # 1. Video Concatenation
+    if num_clips == 1:
+        v_map = "[0:v]"
+    elif transition_type == "none" or transition_duration <= 0.0:
+        concat_inputs = "".join(f"[{i}:v]" for i in range(num_clips))
+        filter_parts.append(f"{concat_inputs}concat=n={num_clips}:v=1:a=0[vout]")
+        v_map = "[vout]"
+    else:
+        # Get duration of each clip to set transition offsets
+        durations = [_get_duration(clip) for clip in clips]
+        current_label = "[0:v]"
+        cumulative = 0.0
+        for i in range(num_clips - 1):
+            offset = cumulative + durations[i] - transition_duration
+            next_label = f"[{i + 1}:v]"
+            out_label = f"[v{i}]" if i < num_clips - 2 else "[vout]"
+            filter_parts.append(
+                f"{current_label}{next_label}xfade=transition={transition_type}:"
+                f"duration={transition_duration}:offset={offset:.3f}{out_label}"
+            )
+            current_label = out_label
+            cumulative = offset
+        v_map = "[vout]"
+
+    # 2. Subtitle Burning
     if subtitle_path and subtitle_path.exists():
-        sub_color = subtitle_style.get("subtitle_color", "#FFFFFF").lstrip("#")
-        sub_bg = "000000"
+        sub_color = subtitle_style.get("subtitle_color", "#FFFFFF").lstrip("#") if subtitle_style else "FFFFFF"
         font_size = 22
         margin_v = 40
-
         force_style = (
             f"FontSize={font_size},"
             f"PrimaryColour=&H00{sub_color[4:6]}{sub_color[2:4]}{sub_color[0:2]},"
@@ -668,39 +582,37 @@ def _finalize_video(
             f"Bold=1"
         )
         sub_filter = f"subtitles={subtitle_path}:force_style='{force_style}'"
+        filter_parts.append(f"{v_map}{sub_filter}[vfinal]")
+        v_map = "[vfinal]"
 
-    # Build final command
+    # 3. Audio Mixing
+    if bgm_idx is not None:
+        filter_parts.append(
+            f"[{voice_idx}:a]volume=1.0[vo];"
+            f"[{bgm_idx}:a]volume={bgm_volume}[bgm];"
+            f"[vo][bgm]amix=inputs=2:duration=first[aout]"
+        )
+        audio_map = "[aout]"
+    else:
+        audio_map = f"{voice_idx}:a"
+
+    # Build complete command line
     cmd = ["ffmpeg", "-y"] + inputs
 
-    if filter_parts and sub_filter:
-        full_filter = ";".join(filter_parts)
+    if filter_parts:
+        filter_graph = ";".join(filter_parts)
         cmd.extend([
-            "-filter_complex", full_filter,
-            "-vf", sub_filter,
-            "-map", "0:v",
+            "-filter_complex", filter_graph,
+            "-map", v_map,
             "-map", audio_map,
-        ])
-    elif filter_parts:
-        cmd.extend([
-            "-filter_complex", ";".join(filter_parts),
-            "-map", "0:v",
-            "-map", audio_map,
-        ])
-    elif sub_filter:
-        cmd.extend([
-            "-vf", sub_filter,
-            "-map", "0:v",
-            "-map", "1:a",
         ])
     else:
         cmd.extend([
             "-map", "0:v",
-            "-map", "1:a",
+            "-map", f"{voice_idx}:a",
         ])
 
-    cmd.extend([
-        "-c:v", encoder,
-    ])
+    cmd.extend(["-c:v", encoder])
     if encoder == "h264_nvenc":
         cmd.extend(["-preset", "fast", "-rc:v", "constqp", "-qp", "20"])
     else:
@@ -713,53 +625,58 @@ def _finalize_video(
         str(output_path),
     ])
 
-    if verbose:
-        print("  🔧 Finalizing video (adding audio + subtitles)...")
+    return cmd
+
+
+def _concat_and_finalize(
+    clips: list[Path],
+    voiceover_path: Path,
+    output_path: Path,
+    transition_type: str = "fade",
+    transition_duration: float = 0.5,
+    subtitle_path: Optional[Path] = None,
+    bgm_path: Optional[Path] = None,
+    bgm_volume: float = 0.15,
+    subtitle_style: Optional[dict] = None,
+    encoder: str = "libx264",
+    verbose: bool = False,
+):
+    """Concatenate clips, mix audio, and burn subtitles in a single high-performance FFmpeg pass."""
+    cmd = _build_ffmpeg_cmd(
+        clips=clips,
+        voiceover_path=voiceover_path,
+        output_path=output_path,
+        transition_type=transition_type,
+        transition_duration=transition_duration,
+        subtitle_path=subtitle_path,
+        bgm_path=bgm_path,
+        bgm_volume=bgm_volume,
+        subtitle_style=subtitle_style,
+        encoder=encoder,
+    )
 
     result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    # Fallback to CPU if GPU encoding fails
+
+    # Try CPU encoding if GPU encoding fails
     if result.returncode != 0 and encoder == "h264_nvenc":
         if verbose:
-            print("  ⚠️ GPU encoding failed during finalization. Falling back to CPU...")
-        cmd_cpu = ["ffmpeg", "-y"] + inputs
-        if filter_parts and sub_filter:
-            cmd_cpu.extend([
-                "-filter_complex", full_filter,
-                "-vf", sub_filter,
-                "-map", "0:v",
-                "-map", audio_map,
-            ])
-        elif filter_parts:
-            cmd_cpu.extend([
-                "-filter_complex", ";".join(filter_parts),
-                "-map", "0:v",
-                "-map", audio_map,
-            ])
-        elif sub_filter:
-            cmd_cpu.extend([
-                "-vf", sub_filter,
-                "-map", "0:v",
-                "-map", "1:a",
-            ])
-        else:
-            cmd_cpu.extend([
-                "-map", "0:v",
-                "-map", "1:a",
-            ])
-        cmd_cpu.extend([
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "20",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-shortest",
-            str(output_path),
-        ])
+            print("  ⚠️ GPU encoding failed during final assembly. Falling back to CPU...")
+        cmd_cpu = _build_ffmpeg_cmd(
+            clips=clips,
+            voiceover_path=voiceover_path,
+            output_path=output_path,
+            transition_type=transition_type,
+            transition_duration=transition_duration,
+            subtitle_path=subtitle_path,
+            bgm_path=bgm_path,
+            bgm_volume=bgm_volume,
+            subtitle_style=subtitle_style,
+            encoder="libx264",
+        )
         result = subprocess.run(cmd_cpu, capture_output=True, text=True)
 
-    if result.returncode != 0 and verbose:
-        print(f"  ⚠️ Finalize warning/error: {result.stderr[:300]}")
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg assembly compilation failed: {result.stderr[:400]}")
 
 
 def _get_duration(path: Path) -> float:

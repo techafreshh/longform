@@ -37,11 +37,10 @@ def test_detect_h264_encoder_fallback(mock_run):
 
 
 @patch("src.assembler._render_scene_clip")
-@patch("src.assembler._concat_with_transitions")
-@patch("src.assembler._finalize_video")
+@patch("src.assembler._concat_and_finalize")
 @patch("src.assembler._get_duration")
 def test_assemble_video_skips_cached_clip(
-    mock_duration, mock_finalize, mock_concat, mock_render, tmp_path
+    mock_duration, mock_concat_finalize, mock_render, tmp_path
 ):
     from src.assembler import assemble_video, SceneTiming
     
@@ -165,11 +164,10 @@ def test_word_level_srt_strips_asterisks():
 
 
 @patch("src.assembler._render_scene_clip")
-@patch("src.assembler._concat_with_transitions")
-@patch("src.assembler._finalize_video")
+@patch("src.assembler._concat_and_finalize")
 @patch("src.assembler._get_duration")
 def test_assemble_video_renders_parallel(
-    mock_duration, mock_finalize, mock_concat, mock_render, tmp_path
+    mock_duration, mock_concat_finalize, mock_render, tmp_path
 ):
     from src.assembler import assemble_video, SceneTiming
     
@@ -262,6 +260,80 @@ def test_build_scene_timings_with_transitions(tmp_path):
     # The subtitle of scene 2 starts at 5.0 and ends at 9.0 (duration 4.0)
     assert "00:00:05,000 -->" in srt_content
     assert "00:00:09,000" in srt_content
+
+
+def test_build_ffmpeg_cmd(tmp_path):
+    from src.assembler import _build_ffmpeg_cmd
+    
+    clips = [tmp_path / "clip1.mp4", tmp_path / "clip2.mp4"]
+    voiceover_path = tmp_path / "voiceover.wav"
+    output_path = tmp_path / "output.mp4"
+    bgm_path = tmp_path / "bgm.mp3"
+    bgm_path.write_bytes(b"bgm content")
+    subtitle_path = tmp_path / "subtitles.srt"
+    subtitle_path.write_bytes(b"sub content")
+    
+    # 1. Test standard transition + subtitles + BGM
+    cmd = _build_ffmpeg_cmd(
+        clips=clips,
+        voiceover_path=voiceover_path,
+        output_path=output_path,
+        transition_type="fade",
+        transition_duration=0.5,
+        subtitle_path=subtitle_path,
+        bgm_path=bgm_path,
+        bgm_volume=0.15,
+        subtitle_style={"subtitle_color": "#FFCC00"},
+        encoder="libx264"
+    )
+    
+    # Verify inputs are mapped
+    assert "-i" in cmd
+    assert str(clips[0]) in cmd
+    assert str(clips[1]) in cmd
+    assert str(voiceover_path) in cmd
+    assert str(bgm_path) in cmd
+    
+    # Verify filter graph
+    assert "-filter_complex" in cmd
+    # Should contain xfade, subtitles, and amix
+    filter_graph = cmd[cmd.index("-filter_complex") + 1]
+    assert "xfade=transition=fade" in filter_graph
+    assert "subtitles=" in filter_graph
+    assert "amix=inputs=2" in filter_graph
+    
+    # Verify mapping
+    assert "-map" in cmd
+    # Should map the final video stream (which should be [vfinal] after subtitles filter)
+    assert "[vfinal]" in cmd
+    # Should map the audio track [aout]
+    assert "[aout]" in cmd
+    
+    # Verify encoder parameters
+    assert "-c:v" in cmd
+    assert "libx264" in cmd
+    assert "-preset" in cmd
+    assert "medium" in cmd
+    
+    # 2. Test single clip + no transitions + no BGM
+    cmd_single = _build_ffmpeg_cmd(
+        clips=[clips[0]],
+        voiceover_path=voiceover_path,
+        output_path=output_path,
+        transition_type="none",
+        transition_duration=0.0,
+        subtitle_path=None,
+        bgm_path=None,
+        encoder="h264_nvenc"
+    )
+    
+    # No filter graph since 1 clip, no subtitles, no BGM
+    assert "-filter_complex" not in cmd_single
+    assert "-map" in cmd_single
+    assert "0:v" in cmd_single
+    assert "1:a" in cmd_single
+    assert "h264_nvenc" in cmd_single
+
 
 
 
