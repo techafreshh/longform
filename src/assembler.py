@@ -18,12 +18,16 @@ class SceneTiming:
     start_time: float  # seconds
     duration: float    # seconds
     narration: str
+    voice_duration: float = 0.0
+
 
 
 def build_scene_timings(
     scenes: list[dict],
     voice_segments: list[dict],
     image_dir: Path,
+    transition_type: str = "fade",
+    transition_duration: float = 0.5,
 ) -> list[SceneTiming]:
     """
     Build timing map: which image shows at which time, driven by voice durations.
@@ -32,6 +36,8 @@ def build_scene_timings(
         scenes: Parsed scene list with 'index', 'description', 'narration'.
         voice_segments: Voice segment list with 'index', 'duration'.
         image_dir: Directory containing scene_XX.png images.
+        transition_type: Transition type (e.g. 'fade').
+        transition_duration: Transition duration in seconds.
 
     Returns:
         List of SceneTiming objects in order.
@@ -47,10 +53,10 @@ def build_scene_timings(
     for scene in scenes:
         idx = scene["index"]
         # Use voice duration if available, otherwise estimate from word count
-        duration = duration_map.get(idx, len(scene.get("narration", "").split()) * 0.4)
+        v_dur = duration_map.get(idx, len(scene.get("narration", "").split()) * 0.4)
 
         # Minimum 3 seconds per scene
-        duration = max(3.0, duration)
+        v_dur = max(3.0, v_dur)
 
         image_path = image_dir / f"scene_{idx:02d}.png"
         if not image_path.exists():
@@ -61,13 +67,20 @@ def build_scene_timings(
             index=idx,
             image_path=image_path,
             start_time=current_time,
-            duration=duration,
+            duration=v_dur,
             narration=scene.get("narration", ""),
+            voice_duration=v_dur,
         ))
 
-        current_time += duration
+        current_time += v_dur
+
+    # Adjust durations to account for transitions (only for non-last scenes)
+    if transition_type != "none" and transition_duration > 0.0 and len(timings) > 1:
+        for i in range(len(timings) - 1):
+            timings[i].duration += transition_duration
 
     return timings
+
 
 
 def generate_subtitles(
@@ -177,6 +190,9 @@ def _scene_level_srt(timings: list[SceneTiming]) -> str:
     idx = 1
 
     for timing in timings:
+        # Use voice_duration if available and valid (> 0), fallback to duration
+        dur = timing.voice_duration if getattr(timing, "voice_duration", 0.0) > 0.0 else timing.duration
+
         # Split narration into ~10-word chunks
         words = timing.narration.split()
         chunk_size = 10
@@ -188,7 +204,7 @@ def _scene_level_srt(timings: list[SceneTiming]) -> str:
         if not chunks:
             continue
 
-        chunk_duration = timing.duration / len(chunks)
+        chunk_duration = dur / len(chunks)
 
         for j, chunk in enumerate(chunks):
             start = timing.start_time + j * chunk_duration

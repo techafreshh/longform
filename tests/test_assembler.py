@@ -202,4 +202,67 @@ def test_assemble_video_renders_parallel(
     assert mock_render.call_count == 2
 
 
+def test_build_scene_timings_with_transitions(tmp_path):
+    from src.assembler import build_scene_timings, _scene_level_srt
+    
+    # Create dummy images
+    image_path1 = tmp_path / "scene_01.png"
+    image_path1.write_bytes(b"mock image 1")
+    image_path2 = tmp_path / "scene_02.png"
+    image_path2.write_bytes(b"mock image 2")
+    
+    scenes = [
+        {"index": 1, "description": "Scene 1", "narration": "First scene narration text."},
+        {"index": 2, "description": "Scene 2", "narration": "Second scene narration text."},
+    ]
+    
+    voice_segments = [
+        {"index": 1, "duration": 5.0},
+        {"index": 2, "duration": 4.0},
+    ]
+    
+    # Case 1: transition_type = "none"
+    timings_none = build_scene_timings(
+        scenes=scenes,
+        voice_segments=voice_segments,
+        image_dir=tmp_path,
+        transition_type="none",
+        transition_duration=0.5
+    )
+    
+    assert len(timings_none) == 2
+    assert timings_none[0].duration == 5.0
+    assert timings_none[0].voice_duration == 5.0
+    assert timings_none[1].duration == 4.0
+    assert timings_none[1].voice_duration == 4.0
+    
+    # Case 2: transition_type = "fade", transition_duration = 0.5
+    timings_fade = build_scene_timings(
+        scenes=scenes,
+        voice_segments=voice_segments,
+        image_dir=tmp_path,
+        transition_type="fade",
+        transition_duration=0.5
+    )
+    
+    assert len(timings_fade) == 2
+    # First scene duration should be extended by transition_duration (5.0 + 0.5 = 5.5)
+    assert timings_fade[0].duration == 5.5
+    assert timings_fade[0].voice_duration == 5.0
+    # Last scene duration should NOT be extended (remains 4.0)
+    assert timings_fade[1].duration == 4.0
+    assert timings_fade[1].voice_duration == 4.0
+    
+    # Verify fallback scene-level subtitles use voice_duration instead of clip duration
+    srt_content = _scene_level_srt(timings_fade)
+    # Timing 1 starts at 0.0, has voice_duration = 5.0, so subtitle should end at 5.0
+    # First cue starts around 0.0 and splits narration into chunks
+    # Verify we don't bleed into 5.5s
+    assert "00:00:05,000" in srt_content
+    # The subtitle of scene 2 starts at 5.0 and ends at 9.0 (duration 4.0)
+    assert "00:00:05,000 -->" in srt_content
+    assert "00:00:09,000" in srt_content
+
+
+
 

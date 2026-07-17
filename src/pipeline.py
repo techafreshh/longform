@@ -259,7 +259,17 @@ def run_stage_assembly(
         {"index": s.index, "duration": s.duration}
         for s in voice_result.segments
     ]
-    timings = build_scene_timings(scenes_data, voice_segments, paths.scenes_dir)
+    preset = STYLE_PRESETS.get(style, STYLE_PRESETS["color_whiteboard"])
+    transition_type = preset.get("transition", "fade")
+    transition_duration = preset.get("transition_duration", 0.5)
+
+    timings = build_scene_timings(
+        scenes_data,
+        voice_segments,
+        paths.scenes_dir,
+        transition_type=transition_type,
+        transition_duration=transition_duration,
+    )
 
     # Generate subtitles
     srt_path = paths.output_dir / "subtitles.srt"
@@ -275,6 +285,8 @@ def run_stage_assembly(
         bgm_path=Path(bgm_path) if bgm_path else None,
         bgm_volume=bgm_volume,
         ken_burns=ken_burns,
+        transition_type=transition_type,
+        transition_duration=transition_duration,
         gdrive_folder_id=gdrive_folder_id,
         resume_from_scene=resume_from_scene,
         max_workers=max_workers,
