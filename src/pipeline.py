@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from .config import ProjectPaths, STYLE_PRESETS, slugify
+from .config import ProjectPaths, STYLE_PRESETS, slugify, USE_REFERENCE_CLIPS, REFERENCE_CLIP_DURATION
 from .researcher import research_topic
 from .scriptwriter import generate_script, parse_scenes, Script
 from .voice import generate_voice_fish, generate_voice_qwen, VoiceResult, VoiceSegment
@@ -13,6 +13,7 @@ from .assembler import build_scene_timings, generate_subtitles, assemble_video
 from .seo import generate_seo
 from .stock import search_stock_footage
 from .youtube_reference import search_youtube_videos, download_youtube_transcript
+from .youtube_clip import download_reference_clip_optional, analyze_reference_clip_with_transcript
 
 
 
@@ -84,6 +85,24 @@ def run_stage_script(
             niche=niche,
             style=style,
         )
+
+    # Inject reference style guidelines if they exist
+    analysis_file = paths.project_dir / "reference_style_analysis.json"
+    if analysis_file.exists():
+        try:
+            with open(analysis_file, "r", encoding="utf-8") as f:
+                style_analysis = json.load(f)
+                style_directions = f"""
+Visual and Pacing style instructions (emulate this in scene transitions, layouts, and pauses):
+- Background style: {style_analysis.get('background_style', 'N/A')}
+- Drawing style: {style_analysis.get('drawing_style', 'N/A')}
+- Visual metaphors: {style_analysis.get('visual_metaphors', 'N/A')}
+- Narrative Pacing: {style_analysis.get('narrative_pacing', 'N/A')}
+"""
+                additional_prompt = (additional_prompt + "\n" + style_directions).strip()
+        except Exception as e:
+            if verbose:
+                print(f"⚠️ Failed to load style guidelines for script generation: {e}")
 
     script = generate_script(
         topic=topic,
@@ -405,6 +424,20 @@ def run_pipeline(
             verbose=verbose,
         )
 
+    # --- Stage 1.7: Reference Clips ---
+    if USE_REFERENCE_CLIPS:
+        if verbose:
+            print("\n" + "=" * 60)
+            print("📹 STAGE 1.7: Downloading & Analyzing Reference Clips")
+            print("=" * 60)
+        run_stage_reference_clips(
+            paths=paths,
+            topic=topic,
+            force=force,
+            gdrive_folder_id=gdrive_folder_id,
+            verbose=verbose,
+        )
+
     # --- Stage 2: Script ---
     if verbose:
         print("\n" + "=" * 60)
@@ -604,4 +637,109 @@ def run_stage_reference_scripts(
             _upload_if_gdrive_active(gdrive_folder_id, file_path, "reference_scripts")
 
     return downloaded
+
+
+def run_stage_reference_clips(
+    paths: ProjectPaths,
+    topic: str,
+    force: bool = False,
+    gdrive_folder_id: Optional[str] = None,
+    verbose: bool = True,
+) -> Optional[dict]:
+    """Search, download (optional), and analyze reference video clips from YouTube."""
+    if not USE_REFERENCE_CLIPS:
+        return None
+
+    analysis_file = paths.project_dir / "reference_style_analysis.json"
+    if analysis_file.exists() and not force:
+        if verbose:
+            print(f"ℹ️ Reference style analysis already exists at: {analysis_file}")
+            print("   Skipping style analysis. Set force=True to regenerate.")
+        try:
+            with open(analysis_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    # 1. Scan reference_clips directory for existing files
+    clip_path = None
+    existing_clips = []
+    if paths.reference_clips_dir.exists():
+        existing_clips = list(paths.reference_clips_dir.glob("*.mp4")) + \
+                         list(paths.reference_clips_dir.glob("*.webm")) + \
+                         list(paths.reference_clips_dir.glob("*.mkv"))
+
+    if existing_clips:
+        clip_path = existing_clips[0]
+        if verbose:
+            print(f"📁 Found existing local reference clip: {clip_path.name}")
+    else:
+        # Check if we have dynamic yt-dlp downloading capability
+        if verbose:
+            print(f"🔍 Searching YouTube for references related to: '{topic}' to download a clip...")
+        from .youtube_reference import search_youtube_videos
+        videos = search_youtube_videos(topic, count=1)
+        if not videos:
+            if verbose:
+                print("⚠️ No reference videos found to download.")
+            return None
+        
+        video_id = videos[0]["video_id"]
+        title = videos[0]["title"]
+        safe_title = slugify(title)[:50]
+        clip_path = paths.reference_clips_dir / f"{safe_title}_{video_id}.mp4"
+        
+        # Pull reference clip (checks if yt-dlp is available)
+        download_reference_clip_optional(video_id, clip_path, duration_seconds=REFERENCE_CLIP_DURATION, verbose=verbose)
+
+    if not clip_path or not clip_path.exists() or clip_path.stat().st_size < 1024:
+        if verbose:
+            print("⚠️ No valid reference clip available for analysis.")
+        return None
+
+    # 2. Get transcript text for this reference
+    transcript_text = ""
+    video_id = None
+    stem = clip_path.stem
+    if "_" in stem:
+        video_id = stem.split("_")[-1]
+    
+    project_ref_dir = paths.project_dir / "reference_scripts"
+    existing_transcripts = list(project_ref_dir.glob(f"*{video_id}*.txt")) if (video_id and project_ref_dir.exists()) else []
+    if existing_transcripts:
+        try:
+            transcript_text = existing_transcripts[0].read_text(encoding="utf-8")
+        except Exception:
+            pass
+    
+    if not transcript_text and video_id:
+        from .youtube_reference import download_youtube_transcript
+        ref_title = stem.rsplit("_", 1)[0]
+        tx_path = download_youtube_transcript(video_id, ref_title, project_ref_dir, verbose=verbose)
+        if tx_path and tx_path.exists():
+            try:
+                transcript_text = tx_path.read_text(encoding="utf-8")
+            except Exception:
+                pass
+
+    if not transcript_text:
+        if verbose:
+            print("⚠️ No transcript text available for this reference. Performing video-only analysis.")
+        transcript_text = "[No transcript available. Analyze visual pacing and editing from the video frames alone.]"
+
+    # 3. Perform Gemini multimodal analysis
+    from .config import get_genai_client
+    try:
+        client = get_genai_client()
+        analysis = analyze_reference_clip_with_transcript(client, clip_path, transcript_text, verbose=verbose)
+        if analysis:
+            with open(analysis_file, "w", encoding="utf-8") as f:
+                json.dump(analysis, f, indent=2, ensure_ascii=False)
+            _upload_if_gdrive_active(gdrive_folder_id, analysis_file)
+            return analysis
+    except Exception as e:
+        if verbose:
+            print(f"⚠️ Failed to analyze reference clip: {e}")
+    
+    return None
 

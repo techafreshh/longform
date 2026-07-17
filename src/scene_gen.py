@@ -342,6 +342,22 @@ def generate_scenes(
     client = get_genai_client()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Check if a custom style analysis exists from reference clips
+    import json
+    reproduction_prefix = None
+    analysis_file = output_dir.parent / "reference_style_analysis.json"
+    if analysis_file.exists():
+        try:
+            with open(analysis_file, "r", encoding="utf-8") as f:
+                analysis_data = json.load(f)
+                reproduction_prefix = analysis_data.get("reproduction_prompt_prefix")
+                if verbose and reproduction_prefix:
+                    print(f"🎨 Found custom style reproduction prompt prefix from reference clips:")
+                    print(f"   '{reproduction_prefix}'")
+        except Exception as e:
+            if verbose:
+                print(f"⚠️ Failed to read reference style analysis for scene gen: {e}")
+
     generated_paths = []
     report_records = []
 
@@ -385,8 +401,9 @@ def generate_scenes(
             print(f"  🎨 Generating scene {idx}/{len(scenes)}: {description[:60]}...")
 
         # Build the prompt with style prefix
+        style_prefix = reproduction_prefix if reproduction_prefix else preset['image_prompt_prefix']
         prompt = (
-            f"{preset['image_prompt_prefix']}. "
+            f"{style_prefix}. "
             f"Subject: {description}. "
             f"Resolution: {VIDEO_WIDTH}x{VIDEO_HEIGHT}, landscape orientation. "
             f"The illustration should clearly communicate the concept. "

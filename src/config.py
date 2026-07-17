@@ -30,7 +30,9 @@ IMAGEN_MODEL = os.getenv("IMAGEN_MODEL", "gemini-3.1-flash-image")
 
 # Pacing & Rendering Settings
 PAUSE_BETWEEN_SCENES = float(os.getenv("PAUSE_BETWEEN_SCENES", "0.8"))
-RENDER_MAX_WORKERS = int(os.getenv("RENDER_MAX_WORKERS", "4"))
+RENDER_MAX_WORKERS = int(os.getenv("RENDER_MAX_WORKERS", "20"))
+USE_REFERENCE_CLIPS = os.getenv("USE_REFERENCE_CLIPS", "false").lower() == "true"
+REFERENCE_CLIP_DURATION = int(os.getenv("REFERENCE_CLIP_DURATION", "60"))
 
 
 
@@ -149,6 +151,10 @@ class ProjectPaths:
     def reference_scripts_dir(self) -> Path:
         return self.base_dir / "reference_scripts"
 
+    @property
+    def reference_clips_dir(self) -> Path:
+        return self.project_dir / "reference_clips"
+
     def ensure_dirs(self):
         """Create all necessary directories."""
         for d in [
@@ -159,6 +165,7 @@ class ProjectPaths:
             self.output_dir,
             self.thumbnail_dir,
             self.reference_scripts_dir,
+            self.reference_clips_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
 
