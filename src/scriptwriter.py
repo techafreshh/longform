@@ -74,7 +74,7 @@ def _get_client() -> OpenAI:
     )
 
 
-def _estimate_scene_count(target_length: str) -> int:
+def _estimate_scene_count(target_length: str, style: str = "color_whiteboard") -> int:
     """Estimate number of scenes from target length string."""
     # Parse "10-12 min" or "15 min" etc.
     numbers = re.findall(r'\d+', target_length)
@@ -84,7 +84,9 @@ def _estimate_scene_count(target_length: str) -> int:
         avg_minutes = 10  # default
 
     # ~4 scenes per minute for whiteboard style (approx 15s per scene)
-    return max(8, int(avg_minutes * 4.0))
+    # ~8 scenes per minute for stickman style (approx 7.5s per scene)
+    multiplier = 8.0 if style == "stickman" else 4.0
+    return max(8, int(avg_minutes * multiplier))
 
 
 def _estimate_timestamps(target_length: str) -> tuple[str, str]:
@@ -133,7 +135,7 @@ def generate_script(
     client = _get_client()
     model = model or DEFAULT_MODEL
 
-    scene_count = _estimate_scene_count(target_length)
+    scene_count = _estimate_scene_count(target_length, style)
     body_end, climax_end = _estimate_timestamps(target_length)
 
     system_prompt = SCRIPT_SYSTEM_PROMPT.format(
@@ -146,6 +148,20 @@ def generate_script(
         additional_prompt=additional_prompt or "None",
         style=style,
     )
+
+    if style == "stickman":
+        system_prompt = system_prompt.replace(
+            "specializing in educational whiteboard animation videos",
+            "specializing in educational stickman animation videos"
+        )
+        system_prompt = system_prompt.replace(
+            "Each scene = one whiteboard illustration.",
+            "Each scene = one stickman/minimalist cartoon illustration."
+        )
+        system_prompt = system_prompt.replace(
+            "- A scene should last 10-20 seconds of narration (approx. 25-50 words). Aim for a higher visual pacing/tempo to keep the viewer visually engaged.",
+            "- A scene should last only 5-10 seconds of narration (approx. 12-25 words) to create quick-changing visuals. Pacing must be very rapid."
+        )
 
     # Load style reference scripts if directory exists
     reference_content = ""

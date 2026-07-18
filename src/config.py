@@ -73,6 +73,24 @@ STYLE_PRESETS = {
         "transition": "fade",
         "transition_duration": 0.5,
     },
+    "stickman": {
+        "name": "Stickman",
+        "image_prompt_prefix": (
+            "Minimalist stickman cartoon style, simple hand-drawn black stick figure "
+            "illustration with expressive face, thick clean outlines, minimal flat accent "
+            "colors to highlight key elements, on a dynamic solid light background or minimal light "
+            "texture (solid off-white, light gray grid paper, or light blue blueprint lines) "
+            "matching the scene's subject matter. Comic style, humorous 2D vector graphic, "
+            "educational diagram, extremely simple, clean, no gradient, no complex background"
+        ),
+        "bg_color": "#F8F9FA",
+        "text_color": "#111111",
+        "subtitle_bg": "rgba(0,0,0,0.75)",
+        "subtitle_color": "#FFFFFF",
+        "subtitle_highlight": "#FFCC00",
+        "transition": "none",
+        "transition_duration": 0.0,
+    },
 }
 
 

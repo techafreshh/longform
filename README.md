@@ -1,118 +1,168 @@
 # 🎬 Longform Video Factory
 
-Automated faceless whiteboard animation YouTube video pipeline. Goes from topic → published video with minimal manual intervention.
+Automated faceless whiteboard, chalkboard, and stickman animation YouTube video pipeline. Goes from a simple topic to a fully compiled educational explainer video with minimal manual intervention.
 
-## Features
+The system is designed for cloud-native resilience, parallel media rendering, and dynamic account handoffs, allowing you to run the pipeline seamlessly in Google Colab (with optional GPU acceleration) or on local development machines.
 
-- **Google Sheets integration** — Manage your content calendar, pick topics, track status
-- **Deep research** — Gemini Deep Research API for comprehensive topic analysis
-- **AI scriptwriting** — Claude/Gemini via OpenRouter with scene markers
-- **Voice cloning & natural pacing** — Fish Audio S2 (primary) with inline `[pause]` / `[long pause]` tag mapping or Qwen3-TTS (Colab GPU fallback)
-- **AI scene generation** — Gemini Flash Image for consistent whiteboard/chalkboard illustrations
-- **Video assembly & gap-free subtitles** — FFmpeg video assembly, automated markdown-stripping safety nets, and continuous word-level subtitles (`_word_level_srt`) that eliminate subtitle flashing/flickering
-- **Thumbnail generation** — 3 AI-generated thumbnail variants
-- **SEO optimization** — Auto-generated titles, descriptions, and tags
-- **Variable visual styles** — Color whiteboard or chalkboard (per-video setting)
-- **Two review gates** — Review script + review final video before publishing
+---
 
-## Resilient & Cloud-Native Execution (Google Drive & GPU-Accelerated Assembly)
+## 🚀 System Architecture & Workflow Stages
 
-The pipeline is built with maximum resilience to handle Colab VM session losses, rate limits, and cross-account handoffs:
+The video production pipeline is organized into modular sequential stages orchestrated by the library's runner. Each stage is cached dynamically to prevent duplicate API expenses and data losses:
 
-- **GPU-Accelerated Video Rendering**: Auto-detects and utilizes the `h264_nvenc` encoder (e.g. on T4 GPU instances in Google Colab) to accelerate rendering. Gracefully falls back to `libx264` (CPU) if a GPU is unavailable.
-- **Incremental Scene Caching**: Every scene is rendered to a persistent cache directory (`clips_cache/`) as an individual `.mp4` clip. If a crash or timeout occurs, the system checks size and modification times to skip already-rendered clips, ensuring assembly can resume instantly.
-- **Targeted Scene/Clip Resumption**: If you need to force-skip generation and rendering up to a specific index, you can configure `RESUME_FROM_SCENE = <scene_index>` in the notebook configuration cell. The pipeline will treat all prior scenes as completed and resume generation and assembly starting from that index.
-- **Granular Fetch-on-Demand (Google Drive)**: Replaces slow, full-folder downloads with bandwidth-efficient, granular syncing. Root files (`script.md`, `scenes.json`) are pulled on startup, while larger stage assets (`audio`, `scenes`, `clips_cache`) are synced incrementally *only* when the corresponding stage starts.
-- **Immediate Cloud Backup & Synchronization**: To prevent losing work from volatile Colab disks, generated assets from every stage (research, script, voice segments, scene images, thumbnail variants, rendering clips, and final video/SRT files) are immediately uploaded to a shared Google Drive folder upon creation.
-- **Multi-Account Resume Support**: By sharing a single project Google Drive folder link, you can swap between Google accounts (to bypass rate limits or VM daily quotas) and run the notebook on a different VM. The pipeline automatically recovers all completed progress from Google Drive and resumes exactly where the previous account left off.
+```mermaid
+graph TD
+    A[Google Sheet Calendar / Manual Input] --> B[Stage 1: Gemini Deep Research]
+    B --> C[Stage 1.5: Reference Transcript Fetcher]
+    C --> D[Stage 1.7: Gemini Video Style Analysis]
+    D --> E[Stage 2: Scriptwriting & Scene Plan]
+    E --> F[⏸️ Script Review Gate]
+    F --> G[Stage 3: Voiceover Synthesis]
+    G --> H[Stage 4: Scene Image Generation]
+    H --> I[Stage 5: Parallel Clip Rendering]
+    I --> J[Stage 6: Single-pass FFmpeg Assembly]
+    J --> K[Stage 7: Thumbnails & SEO]
+    K --> L[⏸️ Video & Metadata Review Gate]
+    L --> M[Google Sheets Update & Drive Upload]
+```
 
-## Quick Start (Google Colab)
+### 1. Research & Content Retrieval
+*   **Stage 1: Deep Research (`src/researcher.py`)**: Uses the Gemini Deep Research API (`gemini-2.5-pro` Interaction Model) to perform internet-scale research on your topic. Falls back to standard Gemini Flash if required.
+*   **Stage 1.5: YouTube Reference Downloader (`src/youtube_reference.py`)**: Automatically searches YouTube for successful videos on your topic, scrapes their English transcripts, and feeds them to the scriptwriter to match successful pacing and vocabulary.
+*   **Stage 1.7: Multimodal Video Style Analysis (`src/youtube_clip.py`)**: Downloads a short clip of a YouTube video using `yt-dlp` and performs a multimodal analysis via Gemini to extract visual pacing instructions, metaphors, and drawing styles.
 
-1. Open `Longform_Video_Factory.ipynb` in Google Colab
-2. Run Cell 0 to install dependencies and mount Drive
-3. Set your API keys in the config cell
-4. Run cells sequentially — the notebook pauses for your review at two points
+### 2. Scriptwriting & Review Gate
+*   **Stage 2: Scriptwriting (`src/scriptwriter.py`)**: Uses Claude or Gemini via OpenRouter to write the video script. The model generates both narration text and explicit scene layout blocks `[SCENE: Description]`. Punctuation breath hints like `[pause]` or `[long pause]` are inserted dynamically.
+*   **⏸️ Review Gate 1**: The pipeline halts in Google Colab, displaying the formatted Markdown script for human editing. Any manual modifications saved to the script document on Google Drive are automatically honored when continuing the script execution.
 
-## Setup
+### 3. Media Asset Generation
+*   **Stage 3: Voice Synthesis (`src/voice.py`)**: Generates high-quality narration. Uses the Fish Audio API (with custom voice cloning) or a local Qwen3-TTS GPU-fallback. Generates word-level timestamps using Whisper to align subtitles.
+*   **Stage 4: Scene Image Generation (`src/scene_gen.py`)**: Generates visual representations of each scene. Integrates fallbacks across Vertex AI Imagen and Google AI Studio, and defaults to custom Pillow-generated text cards if all APIs fail.
 
-### API Keys & Configuration
+### 4. Rendering, Finalizing & Publishing
+*   **Stage 5: Parallel Clip Rendering (`src/assembler.py`)**: Individual visual slides are rendered in parallel to a local directory using CPU or GPU-accelerated video encoders.
+*   **Stage 6: Single-Pass Video Assembly (`src/assembler.py`)**: Concatenates scene clips, mixes background music (BGM) with volume controls, and burns in custom word-level highlighted subtitles.
+*   **Stage 7: Publishing Assets (`src/seo.py`, `src/scene_gen.py`)**: Generates YouTube SEO metadata (optimized title, description with tags, category ID) and three distinct AI-generated thumbnail variants.
+*   **⏸️ Review Gate 2**: Allows previewing the compiled video, thumbnail options, and description directly in the notebook before marking the spreadsheet row as `complete`.
 
-| Key / Variable | Required | Description | Get from |
+---
+
+## 🎨 Visual Styles
+
+Set visual styles globally or per-video in the Google Sheet's `Style` column:
+
+### 1. Color Whiteboard (`color_whiteboard`)
+*   **Aesthetic**: Colorful marker outlines on a clean white background.
+*   **Composition**: 2D minimalist hand-drawn cartoon shapes, diagrams, and educational sketches with clean borders.
+*   **Effects**: Gentle camera pan/zoom animations (Ken Burns) alternating between slides with smooth crossfades (0.5s).
+
+### 2. Chalkboard (`chalkboard`)
+*   **Aesthetic**: White and colored chalk drawings on a green chalkboard canvas.
+*   **Composition**: Heavy chalk dust textures and sketch-style strokes representing visual concepts.
+*   **Effects**: Gentle camera pan/zoom animations (Ken Burns) and subtle crossfades.
+
+### 3. Stickman (`stickman`)
+*   **Aesthetic**: Snappy stick-figure storytelling inspired by channels like *CGP Grey* and *Stickman Explained*.
+*   **Composition**: Simple hand-drawn black stick figures with highly expressive faces and minimal flat color accents (e.g. red, yellow, blue) to guide attention.
+*   **Pacing & Density**: Doubles visual pacing (scenes transition every 5–10 seconds, ~12–25 words of narration) to keep modern viewers engaged.
+*   **Effects**: No Ken Burns camera movement, utilizing **instant hard cuts** for visual pacing.
+*   **Dynamic Backgrounds**: Gemini dynamically selects light visual canvas backgrounds (off-white, grid math paper, or blueprint background lines) depending on each scene's subject matter.
+
+---
+
+## 📦 Account Handoff & Google Drive Resumption
+
+Whiteboard videos can require significant rendering tasks and API queries. The pipeline supports **Multi-Account Resume** and **Bandwidth-Efficient Syncing** to bypass rate limits or daily VM quotas:
+
+1.  **Shared Folder Sharing**: Share a Google Drive project directory using a shared link (viewable/writable by any of your Google accounts).
+2.  **Handoff Setup**: Paste the URL into the notebook's `PROJECT_FOLDER_URL` parameter on a new account or Colab VM instance.
+3.  **Sync on Demand**: The pipeline initializes the project local folder structure and runs an **incremental fetch-on-demand sync**. It downloads only metadata files (`script.md`, `scenes.json`) first. Subfolders (e.g., `audio/`, `scenes/`, `clips_cache/`) are downloaded incrementally *only* when their respective stage begins.
+4.  **Automatic Variable Alignment**: The system automatically reads `scenes.json` from the shared folder and aligns notebook variables (`TOPIC`, `NICHE`, `STYLE`) with the remote state, ensuring you do not need to reconfigure them.
+5.  **Scene-Level Resumption**: If a crash occurs or you need to skip rendering prior slides, set `RESUME_FROM_SCENE = <scene_index>`. The pipeline treats all preceding scenes as finalized and resumes rendering at the selected slide.
+
+---
+
+## 🛠️ Configurations & Variables
+
+### Environment Variables (.env)
+
+| Key | Required | Default | Description |
 |---|---|---|---|
-| `GOOGLE_API_KEY` | ✅ (unless using Vertex) | Google AI Studio Key | [Google AI Studio](https://aistudio.google.com/apikey) |
-| `OPENROUTER_API_KEY` | ✅ | OpenRouter Key | [OpenRouter](https://openrouter.ai/keys) |
-| `FISH_API_KEY` | ✅ | Fish Audio API Key | [Fish Audio](https://fish.audio/app/api-keys/) |
-| `FISH_VOICE_ID` | ✅ | Created after voice cloning | Fish Audio Console |
-| `PEXELS_API_KEY` | Optional | Pexels API Key | [Pexels](https://www.pexels.com/api/) |
-| `GOOGLE_SHEET_ID` | Optional | Your Google Sheet ID | Google Sheet URL |
-| `USE_VERTEX` | Optional | Set to `true` to use GCP Vertex AI | Toggle |
-| `GCP_PROJECT` | Optional | Your GCP Project ID (for Vertex AI) | Google Cloud Console |
-| `GCP_LOCATION` | Optional | GCP Region (defaults to `us-central1`) | Google Cloud Console |
+| `GOOGLE_API_KEY` | Optional | `""` | Google AI Studio key (not required if using Vertex AI). |
+| `OPENROUTER_API_KEY` | Yes | `""` | OpenRouter API Key for scriptwriting & SEO. |
+| `FISH_API_KEY` | Yes | `""` | Fish Audio key for TTS. |
+| `FISH_VOICE_ID` | Yes | `""` | Cloned voice ID from the Fish Audio console. |
+| `PEXELS_API_KEY` | Optional | `""` | Pexels video API key for stock B-roll downloads. |
+| `GOOGLE_SHEET_ID` | Optional | `""` | Google Sheet content calendar spreadsheet key. |
+| `DEFAULT_MODEL` | Optional | `anthropic/claude-sonnet-4` | Default LLM for script writing. |
+| `USE_VERTEX` | Optional | `false` | Set to `true` to route research and image calls through Vertex AI. |
+| `GCP_PROJECT` | Optional | `""` | GCP Project ID (required for Vertex AI). |
+| `GCP_LOCATION` | Optional | `us-central1` | GCP region for Vertex AI. |
+| `PAUSE_BETWEEN_SCENES` | Optional | `0.8` | Default pause added to scene timelines (seconds). |
+| `RENDER_MAX_WORKERS` | Optional | `20` | Default parallel thread workers for clip rendering. |
+| `USE_REFERENCE_CLIPS` | Optional | `false` | Toggle downloading reference video clips for Gemini analysis. |
+| `REFERENCE_CLIP_DURATION` | Optional | `60` | Duration (seconds) of reference video clip downloads. |
 
-### Vertex AI Integration (Using Google Cloud $300 Credits)
+---
 
-If you have a Google Cloud account with $300 welcome credits, you can use **Vertex AI** for image and research generation to avoid spending real money on AI Studio prepay accounts:
+## 📝 Cell-by-Cell Notebook Guide
 
-1. Enable the **Vertex AI API** in your Google Cloud Console.
-2. In Google Colab Secrets (or manual configs), set:
-   * `USE_VERTEX` to `true`
-   * `GCP_PROJECT` to your GCP Project ID
-   * `GCP_LOCATION` to `us-central1` (or your preferred region)
-3. Run the Colab setup cell, approving the `auth.authenticate_user()` OAuth prompt. **Make sure to log in with the Google Account that holds the GCP project and credits.**
+The notebook cells are arranged in logical workflow execution blocks:
 
-### Image Generation Fallbacks
-If you are running the pipeline using Vertex AI (`USE_VERTEX=true`) and run into model availability or permissions errors, the pipeline will automatically attempt to fall back to Google AI Studio's Imagen models using the `GOOGLE_API_KEY`. If all generation backends fail, it automatically generates styled local placeholders using Python's Pillow library so the video rendering process can proceed uninterrupted.
+### Cell 0: Setup & Install
+Installs pip requirements, clones the latest repository version to the Colab disk, mounts Google Drive, and registers folders.
 
-### Google Sheet Setup
+### Cell 1: Credentials & API Keys
+Loads parameters. Prefers Google Colab's Secrets manager (`google.colab.userdata`). Alternatively, uncomment Option B to define environment variables manually. Runs OAuth authentication for Google Sheets access.
 
-Create a Google Sheet with these columns:
+### Cell 2 & 3: Fetch & Pick Topic
+*   **`TOPIC_INDEX`**: Row pointer to select a topic from the Google Sheet content calendar.
+*   **`PROJECT_FOLDER_URL`**: Optional shared folder URL for multi-account handoffs.
+*   **`RESUME_FROM_SCENE`**: Set to a slide index integer (e.g. `43`) to skip preceding generations.
 
-| Topic | Niche | Style | Additional Prompt | Target Length | Status | Video URL | Drive Link |
-|-------|-------|-------|-------------------|---------------|--------|-----------|------------|
+### Cell 4: Initialize Paths
+Prepares project subdirectories. If `PROJECT_FOLDER_URL` is active, it connects to Google Drive API, pulls root configuration files, reads `scenes.json`, and overrides topic details to match.
 
-Set `Status` to `ready` for topics you want to produce.
+### Cell 5: Stage 1 - Deep Research
+*   **`FORCE_RESEARCH`**: Set to `True` to ignore cached `research.md` files and force a fresh research execution.
 
-### Voice Cloning
+### Cell 6: Stage 2 - Script Generation
+*   **`SCRIPT_MODEL`**: Target scriptwriting model (defaults to `anthropic/claude-3-5-sonnet`).
+*   **`FORCE_SCRIPT`**: Overwrites existing scripts.
+*   **`FORCE_REFERENCE_FETCH`**: Forces a download of new reference scripts from YouTube.
+*   *Behavior*: If dynamic style analysis results are found from Cell 10, their aesthetic directions are automatically combined into the script prompt context.
 
-1. Record a 5-15 second voice sample (clear, no background noise)
-2. Run the voice cloning utility cell in the notebook
-3. Save the returned `voice_id` to your config
+### Cell 7: Script Review Gate
+Displays the generated script in Markdown. The user is prompted to edit the raw script file inside Google Drive if text modifications are needed.
 
-## Project Structure
+### Cell 8: Stage 3 - Voice Generation
+*   **`TTS_ENGINE`**: Select `'fish'` (cloned voice) or `'qwen_1.7b'`/`'qwen_0.6b'` (GPU-accelerated local narration).
+*   **`FORCE_VOICE`**: Force regenerate audio tracks.
+*   *Behavior*: Automatically downloads existing voice files incrementally from Google Drive if a shared project is detected.
 
-```
-longform/
-├── src/
-│   ├── config.py         # API keys, style presets, prompts
-│   ├── researcher.py     # Gemini Deep Research
-│   ├── scriptwriter.py   # Script generation + scene parsing
-│   ├── voice.py          # Fish Audio + Qwen3-TTS
-│   ├── scene_gen.py      # Image generation + thumbnails
-│   ├── assembler.py      # FFmpeg video assembly
-│   ├── seo.py            # SEO metadata generation
-│   ├── sheets.py         # Google Sheets integration
-│   ├── stock.py          # Pexels B-roll (optional)
-│   └── pipeline.py       # End-to-end orchestrator
-├── Longform_Video_Factory.ipynb  # Main Colab notebook
-├── pyproject.toml
-├── .env.example
-└── README.md
-```
+### Cell 9: Stage 4 - Scene Image Generation
+*   **`FORCE_SCENES`**: Overwrites all images.
+*   **`REGENERATE_SCENES`**: Set to a list of integers (e.g. `[2, 14]`) to overwrite only specific slides.
+*   *Dynamic Customization*: Place any custom chart, graph, or B-roll image named `scene_XX.png` inside the `scenes` folder. The generator will detect it, skip generating an image for that scene, and the assembler will include your custom graphic in the final video.
 
-## Visual Styles
+### Cell 10: Stage 5 - Video Assembly
+*   **`BGM_PATH`**: Path to local background music audio file.
+*   **`BGM_VOLUME`**: Target volume level (e.g., `0.15`).
+*   **`KEN_BURNS`**: Set to `True` for zoom animations (automatically ignored when style is `stickman`).
+*   **`RENDER_WORKERS`**: Thread counts for rendering slide clips in parallel.
+*   **`SKIP_SUBTITLES`**: Toggles subtitle burn-in.
 
-Set per-video in the Google Sheet `Style` column:
+### Cell 11: Compress Video
+Uses FFmpeg to produce an ultra-compressed version of the output video (<100MB) for quick human download and review directly in Colab.
 
-- **`color_whiteboard`** — Colorful marker on white background
-- **`chalkboard`** — Chalk on dark green chalkboard
+### Cell 12, 13, 14: Thumbnails, SEO, and Finalize
+Generates three thumbnail variants and YouTube SEO descriptions. Previews them for user review and pushes data back to the Google Sheets row, marking the topic as `complete`.
 
-## Cost Per Video
+---
 
-| Component | Cost |
-|-----------|------|
-| Research (Gemini) | $0 (AI Pro sub) |
-| Script (Claude) | ~$0.10 |
-| Voice (Fish Audio free) | $0 |
-| Images (Gemini) | $0 (AI Pro sub) |
-| Assembly (FFmpeg) | $0 |
-| **Total** | **~$0.10** |
+## 💎 Performance & Feature Upgrades
+
+*   **Parallel Slide Compilation**: Utilizes a `ThreadPoolExecutor` worker pool to compile individual scenes to visual clips simultaneously. This reduces scene rendering bottlenecks by up to 5x.
+*   **Single-Pass FFmpeg Compile**: Concatenation of scene clips, crossfade transitions, audio blending (voice + music), and subtitle burning are executed in a single FFmpeg compilation pass, preventing progressive compression degradation and improving compile speed.
+*   **Flicker-Free Subtitles**: Words are grouped into blocks where active words are highlighted via `<font color="...">` markup tags. The subtitle end-time overlaps with the next cue's start-time, eliminating black flickering frames between subtitles.
+*   **Adaptive Rate-Limit Fallbacks**: Image generation dynamically catches `429 Resource Exhausted` rate limits, applying exponential backoff delays. If limits are reached, the system automatically falls back from Vertex AI to AI Studio, and finally to local Pillow-rendered placeholder slides.

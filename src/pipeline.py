@@ -249,6 +249,9 @@ def run_stage_assembly(
     verbose: bool = True,
 ) -> Path:
     """Run video assembly stage, skipping if final video already exists."""
+    if style == "stickman":
+        ken_burns = False
+
     if paths.final_video.exists() and not force:
         if verbose:
             print(f"ℹ️ Final video already exists at: {paths.final_video}")

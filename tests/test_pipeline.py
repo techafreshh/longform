@@ -331,3 +331,29 @@ def test_run_stage_assembly_skips_subtitles_when_requested(mock_build_timings, m
     # Check that subtitle_path is None in the assemble call
     kwargs = mock_assemble.call_args[1]
     assert kwargs["subtitle_path"] is None
+
+
+@patch("src.pipeline.assemble_video")
+@patch("src.pipeline.build_scene_timings")
+def test_run_stage_assembly_forces_ken_burns_false_for_stickman(mock_build_timings, mock_assemble, temp_project_paths):
+    voice_result = VoiceResult(
+        segments=[VoiceSegment(index=1, text="hello", audio_path=Path("dummy"), duration=5.0)],
+        combined_audio=Path("dummy"),
+        total_duration=5.0,
+        timestamps=[]
+    )
+    mock_build_timings.return_value = []
+
+    run_stage_assembly(
+        paths=temp_project_paths,
+        scenes_data=[{"index": 1}],
+        voice_result=voice_result,
+        style="stickman",
+        ken_burns=True,
+        force=True,
+    )
+
+    mock_assemble.assert_called_once()
+    kwargs = mock_assemble.call_args[1]
+    assert kwargs["ken_burns"] is False
+

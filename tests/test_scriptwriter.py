@@ -1,6 +1,6 @@
 """Tests for scriptwriter.py scene parsing and narration cleanup."""
 
-from src.scriptwriter import _clean_narration, parse_scenes
+from src.scriptwriter import _clean_narration, parse_scenes, _estimate_scene_count
 
 
 class TestCleanNarration:
@@ -70,3 +70,18 @@ How things *look* always beats how you actually *feel*."""
         for scene in scenes:
             assert "*" not in scene.narration, f"Scene {scene.index} still has asterisks: {scene.narration}"
             assert "didn't" in scenes[0].narration or "look" in scenes[1].narration
+
+
+class TestEstimateSceneCount:
+    """Tests for _estimate_scene_count visual pacing."""
+
+    def test_whiteboard_style_density(self):
+        # 10 minutes, default/whiteboard style should yield ~40 scenes
+        count = _estimate_scene_count("10 min", "color_whiteboard")
+        assert count == 40
+
+    def test_stickman_style_density(self):
+        # 10 minutes, stickman style should yield double (~80 scenes)
+        count = _estimate_scene_count("10 min", "stickman")
+        assert count == 80
+
