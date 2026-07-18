@@ -609,28 +609,26 @@ def generate_thumbnail(
     thumbnails = []
 
     thumbnail_prompts = [
-        # Variant 1: Bold text + illustration
+        # Variant 1: Whiteboard Cartoon / AsapSCIENCE style
         (
-            f"YouTube thumbnail for '{topic}', 1280x720, high contrast, "
-            f"bold large text overlay, dramatic lighting, eye-catching, "
-            f"educational content about {niche}, vibrant colors, "
-            f"clean composition with a clear focal point, "
-            f"professional YouTube thumbnail design"
+            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. AsapSCIENCE style whiteboard cartoon illustration, clean solid white background. "
+            f"In the center, a simple humorous 2D hand-drawn cartoon character or animal with bold black outlines and minimal vibrant flat coloring, looking curious or thinking. "
+            f"A thought bubble with a question mark or simple icon. At the top, bold large yellow bubble text with a thick black outline showing a short curiosity-provoking question related to '{topic}'. "
+            f"Simple, high-contrast, extremely readable composition."
         ),
-        # Variant 2: Curiosity-driven
+        # Variant 2: Chalkboard style
         (
-            f"YouTube thumbnail for '{topic}', 1280x720, "
-            f"mysterious or surprising visual metaphor related to {niche}, "
-            f"dramatic lighting, curiosity-inducing, high contrast, "
-            f"clean and bold, professional YouTube thumbnail"
+            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Chalkboard style, dark forest green chalkboard background with subtle chalk dust texture. "
+            f"Hand-drawn chalk sketches and diagrams in white and colored chalk illustrating a surprising concept from '{topic}'. "
+            f"Bold yellow and white hand-drawn chalk text overlay at the top. "
+            f"High contrast, educational and highly engaging visual composition."
         ),
-        # Variant 3: Minimalist + bold
+        # Variant 3: Dramatic / Explainer style
         (
-            f"YouTube thumbnail for '{topic}', 1280x720, "
-            f"minimalist design with one bold visual element, "
-            f"high contrast between subject and background, "
-            f"clean typography space, professional YouTube thumbnail "
-            f"for {niche} content"
+            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Dramatic educational explainer style, high contrast, clean minimalist design with a single powerful visual metaphor for '{topic}' as the central focal point. "
+            f"Bold, vibrant color palette, dark professional background. "
+            f"Large, easy-to-read sans-serif yellow text overlay. "
+            f"Clean, eye-catching, and curiosity-inducing."
         ),
     ]
 

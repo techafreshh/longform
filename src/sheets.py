@@ -86,6 +86,35 @@ def get_ready_topics(sheet_id: Optional[str] = None, verbose: bool = True) -> li
     return ready
 
 
+def _should_update_cell(key: str, existing_val: str, new_val: str) -> bool:
+    """Determine whether to overwrite existing cell content in the sheet calendar."""
+    existing_val = existing_val.strip()
+    new_val = new_val.strip()
+    
+    # If the new value is empty, do not write it (preserves existing cell value)
+    if not new_val:
+        return False
+        
+    # If the existing value is empty, always write the new value
+    if not existing_val:
+        return True
+        
+    # Prevent replacing a web link with a local path
+    if existing_val.startswith(("http://", "https://")) and not new_val.startswith(("http://", "https://")):
+        return False
+        
+    # Status column is updated whenever there is a state change
+    if key == "status":
+        return existing_val != new_val
+        
+    # For content fields, if they are already populated, keep what is there
+    # (preserves manual edits or pre-configured URLs/descriptions)
+    if key in ["seo_title", "seo_description", "seo_tags", "drive_link", "thumbnail_link", "video_url"]:
+        return False
+        
+    return existing_val != new_val
+
+
 def update_status(
     row_number: int,
     status: str,
@@ -110,15 +139,28 @@ def update_status(
         client = _get_client()
         sheet = client.open_by_key(sheet_id).sheet1
 
-        # Update status
-        sheet.update_cell(row_number, COLUMNS["status"], status)
+        # Fetch current values in the row to check what is already set
+        row_values = sheet.row_values(row_number)
+        
+        # Pad row_values to cover all columns in our COLUMNS map
+        max_col = max(COLUMNS.values())
+        while len(row_values) < max_col:
+            row_values.append("")
+
+        # Update status if needed
+        existing_status = str(row_values[COLUMNS["status"] - 1]).strip()
+        if _should_update_cell("status", existing_status, status):
+            sheet.update_cell(row_number, COLUMNS["status"], status)
 
         # Update extra columns if provided
         if extra_data:
             for key, value in extra_data.items():
                 col = COLUMNS.get(key)
                 if col:
-                    sheet.update_cell(row_number, col, value)
+                    existing_val = str(row_values[col - 1]).strip()
+                    new_val = str(value).strip()
+                    if _should_update_cell(key, existing_val, new_val):
+                        sheet.update_cell(row_number, col, new_val)
 
     except Exception as e:
         print(f"⚠️ Failed to update sheet: {e}")

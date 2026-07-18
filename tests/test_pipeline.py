@@ -265,3 +265,69 @@ def test_run_stage_scenes_respects_resume_from_scene(mock_generate_scenes, temp_
     
     assert len(res) == 2
     mock_generate_scenes.assert_not_called()
+
+
+@patch("src.pipeline.assemble_video")
+@patch("src.pipeline.generate_subtitles")
+@patch("src.pipeline.build_scene_timings")
+def test_run_stage_assembly_generates_subtitles(mock_build_timings, mock_gen_sub, mock_assemble, temp_project_paths):
+    # Setup dummy voiceover file and timings
+    voice_result = VoiceResult(
+        segments=[VoiceSegment(index=1, text="hello", audio_path=Path("dummy"), duration=5.0)],
+        combined_audio=Path("dummy"),
+        total_duration=5.0,
+        timestamps=[]
+    )
+    
+    mock_build_timings.return_value = []
+    
+    # We create a scene image so that assembler can check it
+    scene_img = temp_project_paths.scenes_dir / "scene_01.png"
+    scene_img.write_text("data", encoding="utf-8")
+
+    run_stage_assembly(
+        paths=temp_project_paths,
+        scenes_data=[{"index": 1}],
+        voice_result=voice_result,
+        force=True,
+        skip_subtitles=False,
+    )
+
+    mock_gen_sub.assert_called_once()
+    mock_assemble.assert_called_once()
+    # Check that subtitle_path is not None in the assemble call
+    kwargs = mock_assemble.call_args[1]
+    assert kwargs["subtitle_path"] is not None
+
+
+@patch("src.pipeline.assemble_video")
+@patch("src.pipeline.generate_subtitles")
+@patch("src.pipeline.build_scene_timings")
+def test_run_stage_assembly_skips_subtitles_when_requested(mock_build_timings, mock_gen_sub, mock_assemble, temp_project_paths):
+    # Setup dummy voiceover file and timings
+    voice_result = VoiceResult(
+        segments=[VoiceSegment(index=1, text="hello", audio_path=Path("dummy"), duration=5.0)],
+        combined_audio=Path("dummy"),
+        total_duration=5.0,
+        timestamps=[]
+    )
+    
+    mock_build_timings.return_value = []
+    
+    # We create a scene image so that assembler can check it
+    scene_img = temp_project_paths.scenes_dir / "scene_01.png"
+    scene_img.write_text("data", encoding="utf-8")
+
+    run_stage_assembly(
+        paths=temp_project_paths,
+        scenes_data=[{"index": 1}],
+        voice_result=voice_result,
+        force=True,
+        skip_subtitles=True,
+    )
+
+    mock_gen_sub.assert_not_called()
+    mock_assemble.assert_called_once()
+    # Check that subtitle_path is None in the assemble call
+    kwargs = mock_assemble.call_args[1]
+    assert kwargs["subtitle_path"] is None
