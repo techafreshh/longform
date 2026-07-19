@@ -112,6 +112,7 @@ def generate_script(
     model: Optional[str] = None,
     output_path: Optional[Path] = None,
     reference_scripts_dir: Optional[Path] = None,
+    resume_partial: bool = False,
     verbose: bool = True,
 ) -> Script:
     """
@@ -127,6 +128,7 @@ def generate_script(
         model: LLM model to use (defaults to DEFAULT_MODEL).
         output_path: Where to save the raw script.
         reference_scripts_dir: Directory containing reference transcripts to emulate.
+        resume_partial: Resume generation from existing script file if it exists.
         verbose: Print progress.
 
     Returns:
@@ -214,20 +216,61 @@ Here are reference transcripts of successful high-performing videos. Emulate the
 Now write the complete script with [SCENE: description] markers. 
 Remember: {scene_count} scenes, {target_length} target length, {style} visual style."""
 
-    if verbose:
-        print(f"📝 Generating script with {model} (~{scene_count} scenes)...")
+    # Check if we should resume from a partial script
+    partial_text = ""
+    if resume_partial and output_path and output_path.exists():
+        try:
+            partial_text = output_path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            if verbose:
+                print(f"⚠️ Failed to read partial script at {output_path} for resume: {e}")
+
+    if partial_text:
+        if verbose:
+            print(f"🔄 Resuming script generation from existing partial script (~{len(partial_text)} chars)...")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": partial_text},
+            {
+                "role": "user",
+                "content": (
+                    "The script generation was cut off or frozen midway. Please continue generating "
+                    "the script exactly from where it left off. Do not repeat any of the text generated so far. "
+                    "Start directly with the continuation."
+                )
+            }
+        ]
+    else:
+        if verbose:
+            print(f"📝 Generating script with {model} (~{scene_count} scenes)...")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
 
     response = client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
+        messages=messages,
         temperature=0.7,
         max_tokens=8000,
     )
 
-    raw_script = response.choices[0].message.content
+    llm_output = response.choices[0].message.content
+
+    if partial_text:
+        continuation = llm_output.strip()
+        # Clean up potential leading/trailing markdown block ticks from continuation
+        if continuation.startswith("```"):
+            lines = continuation.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            continuation = "\n".join(lines).strip()
+        raw_script = partial_text + "\n\n" + continuation
+    else:
+        raw_script = llm_output
 
     # Save raw script
     if output_path:

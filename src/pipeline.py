@@ -68,11 +68,19 @@ def run_stage_script(
     model: Optional[str] = None,
     force: bool = False,
     gdrive_folder_id: Optional[str] = None,
+    resume_partial: bool = False,
     verbose: bool = True,
 ) -> Script:
     """Run script generation stage, skipping if script and scenes JSON already exist."""
     scenes_json_path = paths.project_dir / "scenes.json"
-    if paths.script_file.exists() and scenes_json_path.exists() and not force:
+    
+    # Auto-resume if script file exists but scenes.json was never completed successfully
+    if not force and paths.script_file.exists() and not scenes_json_path.exists():
+        if verbose:
+            print("💡 Script file exists but scenes.json metadata is missing (aborted/incomplete run). Auto-enabling RESUME_PARTIAL fallback.")
+        resume_partial = True
+
+    if paths.script_file.exists() and scenes_json_path.exists() and not force and not resume_partial:
         if verbose:
             print(f"ℹ️ Script and scenes list already exist at: {paths.script_file}")
             print("   Skipping scriptwriting stage to save credits. Set force=True to regenerate.")
@@ -114,6 +122,7 @@ Visual and Pacing style instructions (emulate this in scene transitions, layouts
         model=model,
         output_path=paths.script_file,
         reference_scripts_dir=paths.reference_scripts_dir,
+        resume_partial=resume_partial,
         verbose=verbose,
     )
     script.save_scenes_json(scenes_json_path)
@@ -388,6 +397,7 @@ def run_pipeline(
     force_scenes: Optional[list[int]] = None,
     gdrive_folder_id: Optional[str] = None,
     resume_from_scene: Optional[int] = None,
+    resume_partial: bool = False,
     verbose: bool = True,
 ) -> dict:
     """
@@ -475,6 +485,7 @@ def run_pipeline(
         model=model,
         force=force,
         gdrive_folder_id=gdrive_folder_id,
+        resume_partial=resume_partial,
         verbose=verbose,
     )
     results["script"] = str(paths.script_file)

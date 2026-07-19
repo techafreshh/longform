@@ -85,3 +85,52 @@ class TestEstimateSceneCount:
         count = _estimate_scene_count("10 min", "stickman")
         assert count == 180
 
+
+from unittest.mock import MagicMock, patch
+
+@patch("src.scriptwriter._get_client")
+def test_generate_script_resume(mock_get_client, tmp_path):
+    from src.scriptwriter import generate_script
+    
+    # 1. Setup mocked OpenRouter client and response
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(message=MagicMock(content="[SCENE: Continuation] This is the rest of the script."))
+    ]
+    mock_client.chat.completions.create.return_value = mock_response
+    mock_get_client.return_value = mock_client
+    
+    # 2. Write a partial script file
+    partial_path = tmp_path / "script.md"
+    partial_path.write_text("[SCENE: Introduction] This is the start of the script.", encoding="utf-8")
+    
+    # 3. Call generate_script with resume_partial=True
+    script = generate_script(
+        topic="test topic",
+        niche="test niche",
+        research="mock research content",
+        output_path=partial_path,
+        resume_partial=True,
+        verbose=True
+    )
+    
+    # 4. Verify mock calls and merged content
+    mock_client.chat.completions.create.assert_called_once()
+    called_messages = mock_client.chat.completions.create.call_args[1]["messages"]
+    
+    # Check that it constructed the history correctly
+    assert len(called_messages) == 4
+    assert called_messages[0]["role"] == "system"
+    assert called_messages[1]["role"] == "user"
+    assert called_messages[2]["role"] == "assistant"
+    assert called_messages[2]["content"] == "[SCENE: Introduction] This is the start of the script."
+    assert "cut off" in called_messages[3]["content"]
+    
+    # Check raw_text merged successfully
+    assert script.raw_text == "[SCENE: Introduction] This is the start of the script.\n\n[SCENE: Continuation] This is the rest of the script."
+    assert len(script.scenes) == 2
+    assert script.scenes[0].description == "Introduction"
+    assert script.scenes[1].description == "Continuation"
+
+
