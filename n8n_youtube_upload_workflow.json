@@ -7,7 +7,7 @@
           "interval": [
             {
               "field": "minutes",
-              "minutesInterval": 15
+              "minutesInterval": 5
             }
           ]
         }
@@ -16,10 +16,7 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [
-        380,
-        240
-      ]
+      "position": [100, 200]
     },
     {
       "parameters": {},
@@ -27,42 +24,38 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [
-        380,
-        400
-      ]
+      "position": [100, 400]
     },
     {
       "parameters": {
         "operation": "read",
         "documentId": {
           "__rl": true,
+          "value": "1_MXytALDHn61nZQi14kZqraaihx92BaxH6zFy7xsU9o",
           "mode": "list",
-          "value": ""
+          "cachedResultName": "niche-research"
         },
         "sheetName": {
           "__rl": true,
+          "value": 87540334,
           "mode": "list",
-          "value": "Sheet1"
+          "cachedResultName": "Ancient History Video Ideas"
         },
         "filters": {
           "conditions": [
             {
-              "key": "Status",
-              "value": "complete"
+              "key": "Upload",
+              "value": "Publish"
             }
           ]
         },
         "options": {}
       },
       "id": "read-sheet",
-      "name": "Read Complete Topics",
+      "name": "Read Pending Uploads",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [
-        600,
-        320
-      ],
+      "position": [350, 300],
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "BLaBtYAtbAJNS3MU",
@@ -79,29 +72,28 @@
       "name": "Loop Through Videos",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 1,
-      "position": [
-        820,
-        320
-      ]
+      "position": [600, 300]
     },
     {
       "parameters": {
         "operation": "update",
         "documentId": {
           "__rl": true,
+          "value": "1_MXytALDHn61nZQi14kZqraaihx92BaxH6zFy7xsU9o",
           "mode": "list",
-          "value": ""
+          "cachedResultName": "niche-research"
         },
         "sheetName": {
           "__rl": true,
+          "value": 87540334,
           "mode": "list",
-          "value": "Sheet1"
+          "cachedResultName": "Ancient History Video Ideas"
         },
         "rowNumber": "={{ $json.row_number }}",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Status": "publishing"
+            "Upload": "Publishing"
           },
           "matchingColumns": [],
           "schema": []
@@ -112,10 +104,7 @@
       "name": "Mark as Publishing",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [
-        1040,
-        320
-      ],
+      "position": [850, 300],
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "BLaBtYAtbAJNS3MU",
@@ -125,17 +114,87 @@
     },
     {
       "parameters": {
-        "operation": "list",
-        "q": "=name = '{{ $json.drive_link.split(\"/\").pop() }}' and trashed = false"
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const videoPath = item.json['Drive Link'] || '';\n  const thumbPath = item.json['Thumbnail Link'] || '';\n\n  function parseGdrivePath(p) {\n    if (!p) return { niche: '', topicSlug: '', subfolder: '', filename: '' };\n    const parts = p.split('/').filter(x => x.trim() !== '');\n    const filename = parts[parts.length - 1] || '';\n    const subfolder = parts[parts.length - 2] || '';\n    const topicSlug = parts[parts.length - 3] || '';\n    // Niche is the part after LongformFactory\n    const lfIdx = parts.findIndex(x => x === 'LongformFactory');\n    let niche = '';\n    if (lfIdx >= 0 && lfIdx + 1 < parts.length - 2) {\n      niche = parts[lfIdx + 1];\n    }\n    return { niche, topicSlug, subfolder, filename };\n  }\n\n  const video = parseGdrivePath(videoPath);\n  const thumb = parseGdrivePath(thumbPath);\n\n  results.push({\n    json: {\n      ...item.json,\n      video_niche: video.niche,\n      video_topic_slug: video.topicSlug,\n      video_filename: video.filename,\n      thumb_filename: thumb.filename,\n    }\n  });\n}\n\nreturn results;"
       },
-      "id": "search-video",
+      "id": "extract-paths",
+      "name": "Extract Path Components",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "q": "=name = '{{ $json.video_niche }}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "id": "find-niche-folder",
+      "name": "Find Niche Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1350, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "q": "=name = '{{ $node['Extract Path Components'].json.video_topic_slug }}' and '{{ $json.id }}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "id": "find-topic-folder",
+      "name": "Find Topic Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1600, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "q": "=name = 'output' and '{{ $json.id }}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "id": "find-output-folder",
+      "name": "Find Output Subfolder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1850, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "q": "=name = '{{ $node['Extract Path Components'].json.video_filename }}' and '{{ $json.id }}' in parents and trashed = false",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "id": "find-video-file",
       "name": "Find Video File",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [
-        1260,
-        320
-      ],
+      "position": [2100, 300],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "VFYtIgHdZc9JttZS",
@@ -147,18 +206,13 @@
       "parameters": {
         "operation": "download",
         "fileId": "={{ $json.id }}",
-        "options": {
-          "binaryPropertyName": "video_file"
-        }
+        "options": {}
       },
       "id": "download-video",
       "name": "Download Video",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [
-        1480,
-        320
-      ],
+      "position": [2350, 300],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "VFYtIgHdZc9JttZS",
@@ -168,36 +222,60 @@
     },
     {
       "parameters": {
-        "title": "={{ $node[\"Loop Through Videos\"].json.seo_title }}",
-        "description": "={{ $node[\"Loop Through Videos\"].json.seo_description }}",
-        "tags": "={{ $node[\"Loop Through Videos\"].json.seo_tags }}",
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $node['Loop Through Videos'].json.Topic }}",
+        "description": "={{ $node['Loop Through Videos'].json['SEO Description'] || '' }}",
+        "tags": "={{ $node['Loop Through Videos'].json['SEO Tags'] || '' }}",
         "categoryId": "27",
         "privacyStatus": "private",
-        "binaryPropertyName": "video_file",
         "options": {}
       },
       "id": "upload-youtube",
       "name": "Upload to YouTube",
       "type": "n8n-nodes-base.youTube",
       "typeVersion": 1,
-      "position": [
-        1700,
-        320
-      ]
+      "position": [2600, 300],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "OeyW1LtkkqawuroZ",
+          "name": "YouTube account"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "list",
-        "q": "=name = '{{ $node[\"Loop Through Videos\"].json.thumbnail_link.split(\"/\").pop() }}' and trashed = false"
+        "q": "=name = 'thumbnails' and '{{ $node['Find Topic Folder'].json.id }}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
       },
-      "id": "search-thumbnail",
+      "id": "find-thumbnails-folder",
+      "name": "Find Thumbnails Subfolder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2850, 200],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "VFYtIgHdZc9JttZS",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "q": "=name = '{{ $node['Extract Path Components'].json.thumb_filename }}' and '{{ $json.id }}' in parents and trashed = false",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "id": "find-thumbnail-file",
       "name": "Find Thumbnail File",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [
-        1920,
-        320
-      ],
+      "position": [3100, 200],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "VFYtIgHdZc9JttZS",
@@ -209,18 +287,13 @@
       "parameters": {
         "operation": "download",
         "fileId": "={{ $json.id }}",
-        "options": {
-          "binaryPropertyName": "thumbnail_file"
-        }
+        "options": {}
       },
       "id": "download-thumbnail",
       "name": "Download Thumbnail",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [
-        2140,
-        320
-      ],
+      "position": [3350, 200],
       "credentials": {
         "googleDriveOAuth2Api": {
           "id": "VFYtIgHdZc9JttZS",
@@ -231,38 +304,42 @@
     {
       "parameters": {
         "operation": "setThumbnail",
-        "videoId": "={{ $node[\"Upload to YouTube\"].json.id }}",
-        "binaryPropertyName": "thumbnail_file",
+        "videoId": "={{ $node['Upload to YouTube'].json.id }}",
         "options": {}
       },
       "id": "set-youtube-thumbnail",
       "name": "Set YouTube Thumbnail",
       "type": "n8n-nodes-base.youTube",
       "typeVersion": 1,
-      "position": [
-        2360,
-        320
-      ]
+      "position": [3600, 300],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "OeyW1LtkkqawuroZ",
+          "name": "YouTube account"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "update",
         "documentId": {
           "__rl": true,
+          "value": "1_MXytALDHn61nZQi14kZqraaihx92BaxH6zFy7xsU9o",
           "mode": "list",
-          "value": ""
+          "cachedResultName": "niche-research"
         },
         "sheetName": {
           "__rl": true,
+          "value": 87540334,
           "mode": "list",
-          "value": "Sheet1"
+          "cachedResultName": "Ancient History Video Ideas"
         },
-        "rowNumber": "={{ $node[\"Loop Through Videos\"].json.row_number }}",
+        "rowNumber": "={{ $node['Loop Through Videos'].json.row_number }}",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "Status": "published",
-            "Video URL": "=https://www.youtube.com/watch?v={{ $node[\"Upload to YouTube\"].json.id }}"
+            "Upload": "Published",
+            "Video URL": "=https://www.youtube.com/watch?v={{ $node['Upload to YouTube'].json.id }}"
           },
           "matchingColumns": [],
           "schema": []
@@ -273,10 +350,7 @@
       "name": "Mark as Published",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [
-        2580,
-        320
-      ],
+      "position": [3850, 300],
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "BLaBtYAtbAJNS3MU",
@@ -292,10 +366,7 @@
       "name": "Loop Back",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 1,
-      "position": [
-        2800,
-        320
-      ]
+      "position": [4100, 300]
     }
   ],
   "connections": {
@@ -303,7 +374,7 @@
       "main": [
         [
           {
-            "node": "Read Complete Topics",
+            "node": "Read Pending Uploads",
             "type": "main",
             "index": 0
           }
@@ -314,14 +385,14 @@
       "main": [
         [
           {
-            "node": "Read Complete Topics",
+            "node": "Read Pending Uploads",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Read Complete Topics": {
+    "Read Pending Uploads": {
       "main": [
         [
           {
@@ -344,6 +415,50 @@
       ]
     },
     "Mark as Publishing": {
+      "main": [
+        [
+          {
+            "node": "Extract Path Components",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Path Components": {
+      "main": [
+        [
+          {
+            "node": "Find Niche Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Niche Folder": {
+      "main": [
+        [
+          {
+            "node": "Find Topic Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Topic Folder": {
+      "main": [
+        [
+          {
+            "node": "Find Output Subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Output Subfolder": {
       "main": [
         [
           {
@@ -377,6 +492,17 @@
       ]
     },
     "Upload to YouTube": {
+      "main": [
+        [
+          {
+            "node": "Find Thumbnails Subfolder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Thumbnails Subfolder": {
       "main": [
         [
           {

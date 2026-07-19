@@ -84,8 +84,8 @@ def _estimate_scene_count(target_length: str, style: str = "color_whiteboard") -
         avg_minutes = 10  # default
 
     # ~4 scenes per minute for whiteboard style (approx 15s per scene)
-    # ~8 scenes per minute for stickman style (approx 7.5s per scene)
-    multiplier = 8.0 if style == "stickman" else 4.0
+    # ~18 scenes per minute for stickman style (approx 3.3s per scene on average)
+    multiplier = 18.0 if style == "stickman" else 4.0
     return max(8, int(avg_minutes * multiplier))
 
 
@@ -160,7 +160,7 @@ def generate_script(
         )
         system_prompt = system_prompt.replace(
             "- A scene should last 10-20 seconds of narration (approx. 25-50 words). Aim for a higher visual pacing/tempo to keep the viewer visually engaged.",
-            "- A scene should last only 5-10 seconds of narration (approx. 12-25 words) to create quick-changing visuals. Pacing must be very rapid."
+            "- A scene should last only 2-5 seconds of narration (approx. 5-12 words) to create extremely rapid, quick-changing visual cuts. In high-energy or quick-paced segments, scenes can transition as fast as every 1 second (1-3 words)."
         )
 
     # Load style reference scripts if directory exists

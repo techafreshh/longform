@@ -245,7 +245,7 @@ def run_stage_assembly(
     gdrive_folder_id: Optional[str] = None,
     resume_from_scene: Optional[int] = None,
     max_workers: Optional[int] = None,
-    skip_subtitles: bool = True,
+    skip_subtitles: bool = False,
     verbose: bool = True,
 ) -> Path:
     """Run video assembly stage, skipping if final video already exists."""
@@ -267,12 +267,14 @@ def run_stage_assembly(
     transition_type = preset.get("transition", "fade")
     transition_duration = preset.get("transition_duration", 0.5)
 
+    min_scene_duration = 1.0 if style == "stickman" else 3.0
     timings = build_scene_timings(
         scenes_data,
         voice_segments,
         paths.scenes_dir,
         transition_type=transition_type,
         transition_duration=transition_duration,
+        min_scene_duration=min_scene_duration,
     )
 
     srt_path = None
@@ -499,7 +501,7 @@ def continue_after_script_review(
     gdrive_folder_id: Optional[str] = None,
     resume_from_scene: Optional[int] = None,
     max_workers: Optional[int] = None,
-    skip_subtitles: bool = True,
+    skip_subtitles: bool = False,
     verbose: bool = True,
 ) -> dict:
     """Continue the pipeline after script review approval."""

@@ -26,13 +26,15 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 USE_VERTEX = os.getenv("USE_VERTEX", "false").lower() == "true"
 GCP_PROJECT = os.getenv("GCP_PROJECT", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-IMAGEN_MODEL = os.getenv("IMAGEN_MODEL", "gemini-3.1-flash-image")
+IMAGEN_MODEL = os.getenv("IMAGEN_MODEL", "gemini-2.5-flash-image")
 
 # Pacing & Rendering Settings
 PAUSE_BETWEEN_SCENES = float(os.getenv("PAUSE_BETWEEN_SCENES", "0.8"))
 RENDER_MAX_WORKERS = int(os.getenv("RENDER_MAX_WORKERS", "20"))
 USE_REFERENCE_CLIPS = os.getenv("USE_REFERENCE_CLIPS", "false").lower() == "true"
 REFERENCE_CLIP_DURATION = int(os.getenv("REFERENCE_CLIP_DURATION", "60"))
+SUBTITLE_DELAY = float(os.getenv("SUBTITLE_DELAY", "60.0"))
+
 
 
 

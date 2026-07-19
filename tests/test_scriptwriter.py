@@ -81,7 +81,7 @@ class TestEstimateSceneCount:
         assert count == 40
 
     def test_stickman_style_density(self):
-        # 10 minutes, stickman style should yield double (~80 scenes)
+        # 10 minutes, stickman style should yield ~180 scenes
         count = _estimate_scene_count("10 min", "stickman")
-        assert count == 80
+        assert count == 180
 

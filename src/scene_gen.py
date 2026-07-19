@@ -121,6 +121,9 @@ def _try_gemini_image_generation(client, model_name: str, prompt: str, types, ve
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio="16:9",
+                    ),
                 )
             )
             # Extract image bytes from the response
@@ -207,10 +210,10 @@ def _generate_single_image(client, prompt: str, types, verbose: bool = True) -> 
     # Gemini models: use generate_content with response_modalities=["IMAGE"]
     # These are the confirmed-available image generation models on the project.
     gemini_fallbacks = [
+        "gemini-2.5-flash-image",          # Older but reliable / confirmed working
         "gemini-3.1-flash-image",          # Latest stable flash image gen
         "gemini-3-pro-image",              # Pro quality image gen
         "gemini-3.1-flash-lite-image",     # Fast/cheap option
-        "gemini-2.5-flash-image",          # Older but reliable
         "gemini-3.1-flash-image-preview",  # Preview variant
         "gemini-3-pro-image-preview",      # Preview variant
     ]

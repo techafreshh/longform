@@ -335,6 +335,66 @@ def test_build_ffmpeg_cmd(tmp_path):
     assert "h264_nvenc" in cmd_single
 
 
+def test_word_level_srt_with_delay():
+    from src.assembler import _word_level_srt
+    timestamps = [
+        {"word": "First", "start": 10.0, "end": 10.5},
+        {"word": "second", "start": 20.0, "end": 20.5},
+        {"word": "third", "start": 65.0, "end": 65.5},
+        {"word": "fourth", "start": 70.0, "end": 70.5},
+    ]
+    # Delay for 60 seconds (1 minute)
+    srt = _word_level_srt(timestamps, words_per_group=2, highlight_color="#FFCC00", start_time_delay=60.0)
+    
+    # "First" (10.0) and "second" (20.0) should be skipped
+    assert "FIRST" not in srt
+    assert "SECOND" not in srt
+    # "third" (65.0) and "fourth" (70.0) should be included
+    assert "1\n00:01:05,000" in srt
+    assert "THIRD" in srt
+    assert "2\n00:01:10,000" in srt
+    assert "FOURTH" in srt
+
+
+def test_scene_level_srt_with_delay(tmp_path):
+    from src.assembler import build_scene_timings, _scene_level_srt
+    
+    image_path1 = tmp_path / "scene_01.png"
+    image_path1.write_bytes(b"mock image 1")
+    image_path2 = tmp_path / "scene_02.png"
+    image_path2.write_bytes(b"mock image 2")
+    
+    scenes = [
+        {"index": 1, "description": "Scene 1", "narration": "First scene narration text."},
+        {"index": 2, "description": "Scene 2", "narration": "Second scene narration text."},
+    ]
+    
+    # Total duration = 70.0s for scene 1 (so chunks start from 0 to 70) and 20.0s for scene 2 (from 70 to 90)
+    voice_segments = [
+        {"index": 1, "duration": 70.0},
+        {"index": 2, "duration": 20.0},
+    ]
+    
+    timings = build_scene_timings(
+        scenes=scenes,
+        voice_segments=voice_segments,
+        image_dir=tmp_path,
+        transition_type="none"
+    )
+    
+    # Delay for 60 seconds (1 minute)
+    srt = _scene_level_srt(timings, start_time_delay=60.0)
+    
+    # The first scene has narration "First scene narration text." (4 words).
+    # Chunks are split into size 10, so 1 chunk of duration 70.0s.
+    # The chunk starts at 0.0, which is < 60.0, so it is skipped.
+    assert "FIRST SCENE" not in srt
+    
+    # Second scene starts at 70.0s, which is >= 60.0s, so it should be included.
+    assert "SECOND SCENE" in srt
+
+
+
 
 
 

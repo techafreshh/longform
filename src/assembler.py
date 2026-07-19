@@ -7,7 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-from .config import VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS, STYLE_PRESETS, RENDER_MAX_WORKERS
+from .config import VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS, STYLE_PRESETS, RENDER_MAX_WORKERS, SUBTITLE_DELAY
 
 
 @dataclass
@@ -28,6 +28,7 @@ def build_scene_timings(
     image_dir: Path,
     transition_type: str = "fade",
     transition_duration: float = 0.5,
+    min_scene_duration: float = 3.0,
 ) -> list[SceneTiming]:
     """
     Build timing map: which image shows at which time, driven by voice durations.
@@ -38,6 +39,7 @@ def build_scene_timings(
         image_dir: Directory containing scene_XX.png images.
         transition_type: Transition type (e.g. 'fade').
         transition_duration: Transition duration in seconds.
+        min_scene_duration: Minimum duration for each scene.
 
     Returns:
         List of SceneTiming objects in order.
@@ -55,8 +57,8 @@ def build_scene_timings(
         # Use voice duration if available, otherwise estimate from word count
         v_dur = duration_map.get(idx, len(scene.get("narration", "").split()) * 0.4)
 
-        # Minimum 3 seconds per scene
-        v_dur = max(3.0, v_dur)
+        # Minimum duration constraint
+        v_dur = max(min_scene_duration, v_dur)
 
         image_path = image_dir / f"scene_{idx:02d}.png"
         if not image_path.exists():
@@ -88,6 +90,7 @@ def generate_subtitles(
     word_timestamps: list[dict],
     output_path: Path,
     style: str = "color_whiteboard",
+    subtitle_delay: float = SUBTITLE_DELAY,
 ) -> Path:
     """
     Generate SRT subtitle file from scene timings and word timestamps.
@@ -101,6 +104,7 @@ def generate_subtitles(
         word_timestamps: Word-level timestamps from Whisper.
         output_path: Where to save the .srt file.
         style: Visual style (affects subtitle formatting).
+        subtitle_delay: Seconds to delay subtitles before displaying.
 
     Returns:
         Path to the generated SRT file.
@@ -110,9 +114,9 @@ def generate_subtitles(
     if word_timestamps:
         preset = STYLE_PRESETS.get(style, STYLE_PRESETS["color_whiteboard"])
         highlight_color = preset.get("subtitle_highlight", "#FFCC00")
-        srt_content = _word_level_srt(word_timestamps, highlight_color=highlight_color)
+        srt_content = _word_level_srt(word_timestamps, highlight_color=highlight_color, start_time_delay=subtitle_delay)
     else:
-        srt_content = _scene_level_srt(timings)
+        srt_content = _scene_level_srt(timings, start_time_delay=subtitle_delay)
 
     output_path.write_text(srt_content, encoding="utf-8")
     return output_path
@@ -127,7 +131,12 @@ def _format_srt_time(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
-def _word_level_srt(timestamps: list[dict], words_per_group: int = 6, highlight_color: str = "#FFCC00") -> str:
+def _word_level_srt(
+    timestamps: list[dict],
+    words_per_group: int = 6,
+    highlight_color: str = "#FFCC00",
+    start_time_delay: float = 0.0,
+) -> str:
     """Create SRT from word-level timestamps, grouping words and highlighting the active word.
 
     Each cue extends to the next word's start time so the subtitle stays on
@@ -150,6 +159,8 @@ def _word_level_srt(timestamps: list[dict], words_per_group: int = 6, highlight_
 
         for word_index, active_word_info in enumerate(group):
             start = active_word_info["start"]
+            if start < start_time_delay:
+                continue
 
             # Extend to next word's start (no gap) or group boundary
             if word_index < len(group) - 1:
@@ -182,7 +193,7 @@ def _word_level_srt(timestamps: list[dict], words_per_group: int = 6, highlight_
     return "\n".join(srt_entries)
 
 
-def _scene_level_srt(timings: list[SceneTiming]) -> str:
+def _scene_level_srt(timings: list[SceneTiming], start_time_delay: float = 0.0) -> str:
     """Create SRT from scene-level timings (fallback when no word timestamps)."""
     import re
 
@@ -208,6 +219,8 @@ def _scene_level_srt(timings: list[SceneTiming]) -> str:
 
         for j, chunk in enumerate(chunks):
             start = timing.start_time + j * chunk_duration
+            if start < start_time_delay:
+                continue
             end = start + chunk_duration
 
             srt_entries.append(
