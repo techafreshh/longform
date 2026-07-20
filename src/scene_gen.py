@@ -584,6 +584,7 @@ def generate_thumbnail(
     style: str,
     output_dir: Path,
     count: int = 2,
+    thumbnail_text: Optional[str] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """
@@ -595,6 +596,7 @@ def generate_thumbnail(
         style: Visual style key.
         output_dir: Directory to save thumbnails.
         count: Number of variants to generate.
+        thumbnail_text: Optional custom text to overlay on the thumbnails.
         verbose: Print progress.
 
     Returns:
@@ -645,6 +647,11 @@ def generate_thumbnail(
         if verbose:
             print(f"   ⚠️ Failed to generate 3-word clickbait question with Gemini: {e}. Using fallback: '{question_text}'")
 
+    # Use custom thumbnail text if provided, else fall back to LLM question
+    text_to_show = thumbnail_text if thumbnail_text else question_text
+    if verbose and thumbnail_text:
+        print(f"   ✍️ Using custom thumbnail text overwrite: '{text_to_show}'")
+
     thumbnails = []
 
     thumbnail_prompts = [
@@ -652,14 +659,14 @@ def generate_thumbnail(
         (
             f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Whiteboard cartoon illustration style, clean solid white background. "
             f"In the center, a simple minimalist hand-drawn black stick figure cartoon character with a highly expressive face, looking confused and thinking, scratching its head. "
-            f"A thought bubble with a question mark. At the top, bold large yellow bubble text with a thick black outline showing exactly the words: '{question_text}'. "
+            f"A thought bubble with a question mark. At the top, bold large yellow bubble text with a thick black outline showing exactly the words: '{text_to_show}'. "
             f"Simple, high-contrast, extremely readable composition."
         ),
         # Variant 2: Chalkboard style
         (
             f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Chalkboard style, dark forest green chalkboard background with subtle chalk dust texture. "
             f"In the center, a simple minimalist hand-drawn white chalk stick figure cartoon character looking confused and thinking, scratching its head. "
-            f"A thought bubble with a question mark. At the top, bold large yellow and white hand-drawn chalk text overlay showing exactly the words: '{question_text}'. "
+            f"A thought bubble with a question mark. At the top, bold large yellow and white hand-drawn chalk text overlay showing exactly the words: '{text_to_show}'. "
             f"High contrast, educational and highly engaging visual composition."
         ),
     ]

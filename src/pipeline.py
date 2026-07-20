@@ -321,6 +321,7 @@ def run_stage_thumbnails(
     niche: str,
     style: str,
     force: bool = False,
+    thumbnail_text: Optional[str] = None,
     gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> list[Path]:
@@ -338,6 +339,7 @@ def run_stage_thumbnails(
         niche=niche,
         style=style,
         output_dir=paths.thumbnail_dir,
+        thumbnail_text=thumbnail_text,
         verbose=verbose,
     )
     
@@ -512,6 +514,7 @@ def continue_after_script_review(
     ken_burns: bool = True,
     force: bool = False,
     force_scenes: Optional[list[int]] = None,
+    thumbnail_text: Optional[str] = None,
     gdrive_folder_id: Optional[str] = None,
     resume_from_scene: Optional[int] = None,
     max_workers: Optional[int] = None,
@@ -598,6 +601,7 @@ def continue_after_script_review(
         niche=script.niche,
         style=style,
         force=force,
+        thumbnail_text=thumbnail_text,
         gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
