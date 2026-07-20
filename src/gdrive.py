@@ -268,3 +268,55 @@ def get_file_id(service, parent_folder_id: str, filename: str, gdrive_subfolder_
         print(f"⚠️ Error finding file ID for '{filename}' on Google Drive: {e}")
     return ""
 
+
+def get_file_id_by_path(service, local_path: Path) -> str:
+    """Finds the Google Drive file ID for a local path situated within mounted Google Drive."""
+    try:
+        parts = list(local_path.resolve().parts)
+        
+        # Check if the path contains 'drive' and 'MyDrive'
+        if 'drive' not in parts or 'MyDrive' not in parts:
+            return ""
+            
+        # Find where 'MyDrive' is in the path
+        idx = parts.index('MyDrive')
+        
+        # Get the path components after 'MyDrive'
+        relative_parts = parts[idx+1:]
+        if not relative_parts:
+            return ""
+            
+        # Traverse from 'root'
+        parent_id = "root"
+        for part in relative_parts[:-1]:
+            # Find the subfolder
+            query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            results = service.files().list(
+                q=query, 
+                fields="files(id)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+            files = results.get('files', [])
+            if files:
+                parent_id = files[0]['id']
+            else:
+                return ""
+                
+        # Find the leaf file
+        filename = relative_parts[-1]
+        query = f"'{parent_id}' in parents and name = '{filename}' and trashed = false"
+        results = service.files().list(
+            q=query, 
+            fields="files(id)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        files = results.get('files', [])
+        if files:
+            return files[0]['id']
+    except Exception as e:
+        print(f"⚠️ Error resolving file ID by path: {e}")
+    return ""
+
+

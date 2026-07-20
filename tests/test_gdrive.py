@@ -43,3 +43,28 @@ def test_get_file_id_found():
     file_id_sub = get_file_id(service, "folder_id_xyz", "my_video.mp4", "output")
     assert file_id_sub == "file_id_456"
 
+
+def test_get_file_id_by_path():
+    from src.gdrive import get_file_id_by_path
+    from pathlib import Path
+    
+    service = MagicMock()
+    mock_list = MagicMock()
+    service.files().list.return_value = mock_list
+    
+    # Path is not under MyDrive
+    assert get_file_id_by_path(service, Path("/some/local/path.mp4")) == ""
+    
+    # Path is under MyDrive
+    path = Path("/content/drive/MyDrive/LongformFactory/output/video.mp4")
+    
+    mock_list.execute.side_effect = [
+        {"files": [{"id": "longform_factory_id"}]}, # subfolder search for 'LongformFactory'
+        {"files": [{"id": "output_id"}]},           # subfolder search for 'output'
+        {"files": [{"id": "video_file_id"}]}        # file search for 'video.mp4'
+    ]
+    
+    file_id = get_file_id_by_path(service, path)
+    assert file_id == "video_file_id"
+
+
