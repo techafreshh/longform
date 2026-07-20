@@ -35,6 +35,12 @@ USE_REFERENCE_CLIPS = os.getenv("USE_REFERENCE_CLIPS", "false").lower() == "true
 REFERENCE_CLIP_DURATION = int(os.getenv("REFERENCE_CLIP_DURATION", "60"))
 SUBTITLE_DELAY = float(os.getenv("SUBTITLE_DELAY", "60.0"))
 
+# Google Flow Image Generation
+IMAGE_SOURCE = os.getenv("IMAGE_SOURCE", "gemini")  # "gemini" or "flow"
+FLOW_AGENT_URL = os.getenv("FLOW_AGENT_URL", "")  # e.g. "https://abc123.ngrok.io"
+FLOW_IMAGE_ASPECT = os.getenv("FLOW_IMAGE_ASPECT", "landscape")  # "landscape", "portrait", "square"
+FLOW_REQUEST_DELAY = float(os.getenv("FLOW_REQUEST_DELAY", "3.0"))  # seconds between requests
+
 
 
 
@@ -80,10 +86,9 @@ STYLE_PRESETS = {
         "image_prompt_prefix": (
             "Minimalist stickman cartoon style, simple hand-drawn black stick figure "
             "illustration with expressive face, thick clean outlines, minimal flat accent "
-            "colors to highlight key elements, on a dynamic solid light background or minimal light "
-            "texture (solid off-white, light gray grid paper, or light blue blueprint lines) "
-            "matching the scene's subject matter. Comic style, humorous 2D vector graphic, "
-            "educational diagram, extremely simple, clean, no gradient, no complex background"
+            "colors to highlight key elements, on a solid clean off-white background. "
+            "Comic style, humorous 2D vector graphic, educational diagram, extremely simple, "
+            "clean, no gradient, no complex background, no texture, no gridlines"
         ),
         "bg_color": "#F8F9FA",
         "text_color": "#111111",
