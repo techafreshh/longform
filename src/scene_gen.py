@@ -583,7 +583,7 @@ def generate_thumbnail(
     niche: str,
     style: str,
     output_dir: Path,
-    count: int = 3,
+    count: int = 2,
     verbose: bool = True,
 ) -> list[Path]:
     """
@@ -609,29 +609,58 @@ def generate_thumbnail(
     client = get_genai_client()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Initialize and call LLM to generate the 3-word clickbait question
+    question_text = f"{topic}?"  # Default fallback
+    try:
+        if verbose:
+            print("🔍 Asking Gemini to generate a 3-word clickbait question for the thumbnail...")
+        
+        prompt_question = (
+            f"You are a YouTube thumbnail text designer. Given a topic, generate a maximum 3-word clickbait question "
+            f"that is highly intriguing and makes viewers want to click the thumbnail. "
+            f"Include a question mark. Keep it punchy and short. Examples:\n"
+            f"- Topic: '7 signs you are anxiously attached' -> 'Anxiously attached?'\n"
+            f"- Topic: 'how insulin resistance causes weight gain' -> 'Insulin resistant?'\n"
+            f"- Topic: 'the psychology of flow state' -> 'Flow state?'\n"
+            f"- Topic: 'is sugar toxic?' -> 'Sugar toxic?'\n\n"
+            f"Topic: '{topic}'\n"
+            f"3-Word Question:"
+        )
+        
+        # Use the primary client to generate the text content
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt_question,
+        )
+        if response and response.text:
+            generated = response.text.strip().strip('"').strip("'")
+            words = generated.split()
+            if len(words) <= 4:  # Allowing up to 4 words just in case
+                question_text = generated
+                if not question_text.endswith("?"):
+                    question_text += "?"
+            if verbose:
+                print(f"   💡 Generated question text: '{question_text}'")
+    except Exception as e:
+        if verbose:
+            print(f"   ⚠️ Failed to generate 3-word clickbait question with Gemini: {e}. Using fallback: '{question_text}'")
+
     thumbnails = []
 
     thumbnail_prompts = [
-        # Variant 1: Whiteboard Cartoon / AsapSCIENCE style
+        # Variant 1: Whiteboard Cartoon / Stickman style
         (
-            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. AsapSCIENCE style whiteboard cartoon illustration, clean solid white background. "
-            f"In the center, a simple humorous 2D hand-drawn cartoon character or animal with bold black outlines and minimal vibrant flat coloring, looking curious or thinking. "
-            f"A thought bubble with a question mark or simple icon. At the top, bold large yellow bubble text with a thick black outline showing a short curiosity-provoking question related to '{topic}'. "
+            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Whiteboard cartoon illustration style, clean solid white background. "
+            f"In the center, a simple minimalist hand-drawn black stick figure cartoon character with a highly expressive face, looking confused and thinking, scratching its head. "
+            f"A thought bubble with a question mark. At the top, bold large yellow bubble text with a thick black outline showing exactly the words: '{question_text}'. "
             f"Simple, high-contrast, extremely readable composition."
         ),
         # Variant 2: Chalkboard style
         (
             f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Chalkboard style, dark forest green chalkboard background with subtle chalk dust texture. "
-            f"Hand-drawn chalk sketches and diagrams in white and colored chalk illustrating a surprising concept from '{topic}'. "
-            f"Bold yellow and white hand-drawn chalk text overlay at the top. "
+            f"In the center, a simple minimalist hand-drawn white chalk stick figure cartoon character looking confused and thinking, scratching its head. "
+            f"A thought bubble with a question mark. At the top, bold large yellow and white hand-drawn chalk text overlay showing exactly the words: '{question_text}'. "
             f"High contrast, educational and highly engaging visual composition."
-        ),
-        # Variant 3: Dramatic / Explainer style
-        (
-            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Dramatic educational explainer style, high contrast, clean minimalist design with a single powerful visual metaphor for '{topic}' as the central focal point. "
-            f"Bold, vibrant color palette, dark professional background. "
-            f"Large, easy-to-read sans-serif yellow text overlay. "
-            f"Clean, eye-catching, and curiosity-inducing."
         ),
     ]
 

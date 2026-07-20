@@ -244,3 +244,27 @@ def sync_local_outputs_to_drive(service, folder_id: str, paths) -> bool:
     except Exception as e:
         print(f"⚠️ Error syncing outputs to Google Drive: {e}")
         return False
+
+
+def get_file_id(service, parent_folder_id: str, filename: str, gdrive_subfolder_name: Optional[str] = None) -> str:
+    """Finds the ID of a file in Google Drive without uploading/modifying it."""
+    try:
+        parent_id = parent_folder_id
+        if gdrive_subfolder_name:
+            query = f"'{parent_folder_id}' in parents and name = '{gdrive_subfolder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            results = service.files().list(q=query, fields="files(id)").execute()
+            files = results.get('files', [])
+            if files:
+                parent_id = files[0]['id']
+            else:
+                return ""
+        
+        query = f"'{parent_id}' in parents and name = '{filename}' and trashed = false"
+        results = service.files().list(q=query, fields="files(id)").execute()
+        files = results.get('files', [])
+        if files:
+            return files[0]['id']
+    except Exception as e:
+        print(f"⚠️ Error finding file ID for '{filename}' on Google Drive: {e}")
+    return ""
+
