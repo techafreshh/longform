@@ -138,6 +138,7 @@ def run_stage_voice(
     tts_engine: str = "fish",
     voice_model: str = "s2.1-pro-free",
     reference_audio: Optional[str] = None,
+    style: str = "color_whiteboard",
     force: bool = False,
     gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
@@ -171,6 +172,7 @@ def run_stage_voice(
             scenes=scenes_data,
             output_dir=paths.audio_dir,
             model=voice_model,
+            style=style,
             verbose=verbose,
         )
     elif tts_engine.startswith("qwen"):
@@ -180,6 +182,7 @@ def run_stage_voice(
             output_dir=paths.audio_dir,
             reference_audio=reference_audio,
             model_size=model_size,
+            style=style,
             verbose=verbose,
         )
     else:
@@ -534,6 +537,7 @@ def continue_after_script_review(
         tts_engine=tts_engine,
         voice_model=voice_model,
         reference_audio=reference_audio,
+        style=style,
         force=force,
         gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,

@@ -93,6 +93,7 @@ def generate_voice_fish(
     output_dir: Path,
     voice_id: Optional[str] = None,
     model: str = "s2.1-pro-free",
+    style: str = "color_whiteboard",
     verbose: bool = True,
 ) -> VoiceResult:
     """
@@ -103,6 +104,7 @@ def generate_voice_fish(
         output_dir: Directory to save audio files.
         voice_id: Fish Audio voice ID (from cloned voice).
         model: Fish Audio model name.
+        style: Visual style key.
         verbose: Print progress.
 
     Returns:
@@ -162,8 +164,15 @@ def generate_voice_fish(
             # Create a silent placeholder
             _create_silence(audio_path, duration=len(text.split()) * 0.4)
 
-        # Get duration
+        # Get duration and pad if necessary to match min_scene_duration
         duration = _get_audio_duration(audio_path)
+        min_dur = 1.0 if style == "stickman" else 3.0
+        if duration < min_dur:
+            padding_needed = min_dur - duration
+            if verbose:
+                print(f"    ⏳ Narration too short ({duration:.2f}s). Padding with {padding_needed:.2f}s silence to match min_scene_duration ({min_dur:.1f}s)...")
+            _pad_wav_with_silence(audio_path, padding_needed)
+            duration = _get_audio_duration(audio_path)
 
         segments.append(VoiceSegment(
             index=idx,
@@ -202,6 +211,7 @@ def generate_voice_qwen(
     output_dir: Path,
     reference_audio: Optional[str] = None,
     model_size: str = "1.7B",
+    style: str = "color_whiteboard",
     verbose: bool = True,
 ) -> VoiceResult:
     """
@@ -212,6 +222,7 @@ def generate_voice_qwen(
         output_dir: Directory to save audio files.
         reference_audio: Path to voice reference audio for cloning.
         model_size: "0.6B" or "1.7B".
+        style: Visual style key.
         verbose: Print progress.
 
     Returns:
@@ -283,7 +294,15 @@ def generate_voice_qwen(
             print(f"  ⚠️ Qwen3-TTS failed for scene {idx}: {e}")
             _create_silence(audio_path, duration=len(text.split()) * 0.4)
 
+        # Get duration and pad if necessary to match min_scene_duration
         duration = _get_audio_duration(audio_path)
+        min_dur = 1.0 if style == "stickman" else 3.0
+        if duration < min_dur:
+            padding_needed = min_dur - duration
+            if verbose:
+                print(f"    ⏳ Narration too short ({duration:.2f}s). Padding with {padding_needed:.2f}s silence to match min_scene_duration ({min_dur:.1f}s)...")
+            _pad_wav_with_silence(audio_path, padding_needed)
+            duration = _get_audio_duration(audio_path)
 
         segments.append(VoiceSegment(
             index=idx,
@@ -464,3 +483,37 @@ def clone_voice_fish(
         print(f"   Add this to your .env: FISH_VOICE_ID={voice_id}")
 
     return voice_id
+
+
+def _pad_wav_with_silence(path: Path, padding_duration: float):
+    """Append silence to a WAV file."""
+    temp_padded = path.parent / f"temp_{path.name}"
+    silence_file = path.parent / f"silence_{path.stem}.wav"
+    
+    # Create silence segment
+    _create_silence(silence_file, duration=padding_duration)
+    
+    # Concatenate original WAV and silence
+    list_file = path.parent / f"concat_{path.stem}.txt"
+    with open(list_file, "w") as f:
+        f.write(f"file '{path.resolve()}'\n")
+        f.write(f"file '{silence_file.resolve()}'\n")
+        
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(list_file),
+        "-c", "copy",  # Direct stream copy for speed/lossless WAV
+        str(temp_padded),
+    ]
+    subprocess.run(cmd, capture_output=True, text=True)
+    
+    # Cleanup
+    list_file.unlink(missing_ok=True)
+    silence_file.unlink(missing_ok=True)
+    
+    # Overwrite original file
+    if temp_padded.exists():
+        temp_padded.replace(path)
+

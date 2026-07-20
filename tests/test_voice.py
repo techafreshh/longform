@@ -76,3 +76,32 @@ class TestStripMarkdownForTts:
     def test_preserves_em_dash(self):
         result = _strip_markdown_for_tts("Not from pain \u2014 but from fear.")
         assert "\u2014" in result
+
+
+def test_pad_wav_with_silence():
+    from unittest.mock import MagicMock, patch, mock_open
+    from pathlib import Path
+    from src.voice import _pad_wav_with_silence
+    
+    with patch("subprocess.run") as mock_run, \
+         patch("src.voice._create_silence") as mock_create_silence, \
+         patch("pathlib.Path.exists", return_value=True), \
+         patch("pathlib.Path.replace") as mock_replace, \
+         patch("builtins.open", mock_open()) as mock_file:
+         
+        mock_run.return_value.returncode = 0
+        
+        # Test file path
+        path = Path("/mock/dir/scene_01.wav")
+        
+        _pad_wav_with_silence(path, 0.5)
+        
+        # Verify silence segment creation and FFMPEG concat command execution
+        mock_create_silence.assert_called_once_with(Path("/mock/dir/silence_scene_01.wav"), duration=0.5)
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        assert "ffmpeg" in args
+        assert "-f" in args
+        assert "concat" in args
+        mock_replace.assert_called_once()
+
