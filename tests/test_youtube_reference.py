@@ -91,3 +91,33 @@ def test_download_youtube_transcript_success(mock_list_transcripts, tmp_path):
     assert "Rome's strategy" in content
     assert "Hello, welcome to this video." in content
     assert "Today we are talking about Rome's strategy." in content
+
+
+def test_download_youtube_transcript_fallback_get_transcript(tmp_path):
+    import youtube_transcript_api
+    yt_api_cls = youtube_transcript_api.YouTubeTranscriptApi
+    
+    # Temporarily remove list_transcripts and mock get_transcript
+    orig_list = getattr(yt_api_cls, "list_transcripts", None)
+    if hasattr(yt_api_cls, "list_transcripts"):
+        delattr(yt_api_cls, "list_transcripts")
+    
+    mock_get = MagicMock()
+    mock_get.return_value = [
+        {"text": "Fallback transcript line 1.", "start": 0.0, "duration": 2.0},
+        {"text": "Fallback transcript line 2.", "start": 2.0, "duration": 3.0}
+    ]
+    yt_api_cls.get_transcript = mock_get
+
+    try:
+        dest_dir = tmp_path / "reference_scripts"
+        dest_path = download_youtube_transcript("abc1234567", "Fallback Video", dest_dir, verbose=False)
+
+        assert dest_path is not None
+        assert dest_path.exists()
+        content = dest_path.read_text(encoding="utf-8")
+        assert "Fallback transcript line 1." in content
+        mock_get.assert_called()
+    finally:
+        if orig_list is not None:
+            yt_api_cls.list_transcripts = orig_list

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from .config import ProjectPaths, STYLE_PRESETS, slugify, USE_REFERENCE_CLIPS, REFERENCE_CLIP_DURATION
+from .config import ProjectPaths, STYLE_PRESETS, slugify, USE_REFERENCE_CLIPS, REFERENCE_CLIP_DURATION, IMAGE_SOURCE
 from .researcher import research_topic
 from .scriptwriter import generate_script, parse_scenes, Script
 from .voice import generate_voice_fish, generate_voice_qwen, VoiceResult, VoiceSegment
@@ -215,7 +215,7 @@ def run_stage_scenes(
         idx = scene["index"]
         img_path = paths.scenes_dir / f"scene_{idx:02d}.png"
         expected_paths.append(img_path)
-    
+
     # If not forcing everything and no specific scenes are forced, check if all exist
     if not force and not force_scenes:
         all_exist = True
@@ -232,6 +232,21 @@ def run_stage_scenes(
                 print(f"ℹ️ All expected scene images already exist in: {paths.scenes_dir}")
                 print("   Skipping image generation to save credits. Set force=True to regenerate.")
             return expected_paths
+
+    # Route to Google Flow if IMAGE_SOURCE=flow
+    if IMAGE_SOURCE == "flow":
+        if verbose:
+            print("🌐 Using Google Flow (via flow-agent) for image generation")
+        from .flow_gen import generate_scenes_flow
+        return generate_scenes_flow(
+            scenes=scenes_data,
+            style=style,
+            output_dir=paths.scenes_dir,
+            force=force,
+            force_scenes=force_scenes,
+            resume_from_scene=resume_from_scene,
+            verbose=verbose,
+        )
 
     return generate_scenes(
         scenes=scenes_data,
@@ -322,6 +337,7 @@ def run_stage_thumbnails(
     style: str,
     force: bool = False,
     thumbnail_text: Optional[str] = None,
+    seo_title: Optional[str] = None,
     gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
 ) -> list[Path]:
@@ -334,12 +350,22 @@ def run_stage_thumbnails(
             print("   Skipping thumbnail generation to save credits. Set force=True to regenerate.")
         return existing_thumbs
 
+    # If seo_title was not passed directly, try loading from seo.json if it exists
+    if not seo_title and paths.seo_file.exists():
+        try:
+            with open(paths.seo_file, "r", encoding="utf-8") as f:
+                seo_data = json.load(f)
+                seo_title = seo_data.get("title")
+        except Exception:
+            pass
+
     thumbs = generate_thumbnail(
         topic=topic,
         niche=niche,
         style=style,
         output_dir=paths.thumbnail_dir,
         thumbnail_text=thumbnail_text,
+        seo_title=seo_title,
         verbose=verbose,
     )
     
@@ -356,6 +382,7 @@ def run_stage_seo(
     niche: str,
     script_text: str,
     style: str,
+    research_text: Optional[str] = None,
     force: bool = False,
     gdrive_folder_id: Optional[str] = None,
     verbose: bool = True,
@@ -368,11 +395,18 @@ def run_stage_seo(
         with open(paths.seo_file, "r", encoding="utf-8") as f:
             return json.load(f)
 
+    if not research_text and paths.research_file.exists():
+        try:
+            research_text = paths.research_file.read_text(encoding="utf-8")
+        except Exception:
+            pass
+
     seo = generate_seo(
         topic=topic,
         niche=niche,
         script_text=script_text,
         style=style,
+        research_text=research_text,
         output_path=paths.seo_file,
         verbose=verbose,
     )
@@ -589,10 +623,29 @@ def continue_after_script_review(
     )
     results["video"] = str(video_path)
 
-    # --- Stage 6: Thumbnails ---
+    # --- Stage 6: SEO ---
     if verbose:
         print("\n" + "=" * 60)
-        print("🖼️ STAGE 6: Thumbnail Generation")
+        print("📊 STAGE 6: SEO Metadata")
+        print("=" * 60)
+
+    seo = run_stage_seo(
+        paths=paths,
+        topic=script.topic,
+        niche=script.niche,
+        script_text=script.raw_text,
+        style=style,
+        research_text=results.get("_research"),
+        force=force,
+        gdrive_folder_id=gdrive_folder_id,
+        verbose=verbose,
+    )
+    results["seo"] = seo
+
+    # --- Stage 7: Thumbnails ---
+    if verbose:
+        print("\n" + "=" * 60)
+        print("🖼️ STAGE 7: Thumbnail Generation")
         print("=" * 60)
 
     thumbnails = run_stage_thumbnails(
@@ -602,28 +655,11 @@ def continue_after_script_review(
         style=style,
         force=force,
         thumbnail_text=thumbnail_text,
+        seo_title=seo.get("title"),
         gdrive_folder_id=gdrive_folder_id,
         verbose=verbose,
     )
     results["thumbnails"] = [str(p) for p in thumbnails]
-
-    # --- Stage 7: SEO ---
-    if verbose:
-        print("\n" + "=" * 60)
-        print("📊 STAGE 7: SEO Metadata")
-        print("=" * 60)
-
-    seo = run_stage_seo(
-        paths=paths,
-        topic=script.topic,
-        niche=script.niche,
-        script_text=script.raw_text,
-        style=style,
-        force=force,
-        gdrive_folder_id=gdrive_folder_id,
-        verbose=verbose,
-    )
-    results["seo"] = seo
 
     if verbose:
         print("\n" + "=" * 60)

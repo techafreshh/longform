@@ -583,20 +583,22 @@ def generate_thumbnail(
     niche: str,
     style: str,
     output_dir: Path,
-    count: int = 2,
+    count: int = 3,
     thumbnail_text: Optional[str] = None,
+    seo_title: Optional[str] = None,
     verbose: bool = True,
 ) -> list[Path]:
     """
-    Generate thumbnail variants for the video.
+    Generate thumbnail variants for the video adhering strictly to the video's visual style.
 
     Args:
         topic: Video topic.
         niche: Content niche.
-        style: Visual style key.
+        style: Visual style key ("stickman", "chalkboard", "color_whiteboard").
         output_dir: Directory to save thumbnails.
-        count: Number of variants to generate.
+        count: Number of variants to generate (defaults to 3).
         thumbnail_text: Optional custom text to overlay on the thumbnails.
+        seo_title: Optional YouTube SEO title to derive thumbnail overlay text from.
         verbose: Print progress.
 
     Returns:
@@ -611,69 +613,114 @@ def generate_thumbnail(
     client = get_genai_client()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize and call LLM to generate the 3-word clickbait question
-    question_text = f"{topic}?"  # Default fallback
+    source_context = seo_title or topic
+    question_text = ""
+    fallback_words = [w for w in source_context.split() if w.strip()]
+    default_text = " ".join(fallback_words[:3]) if fallback_words else "Watch This"
+
     try:
         if verbose:
-            print("🔍 Asking Gemini to generate a 3-word clickbait question for the thumbnail...")
+            print("🔍 Asking Gemini to generate thumbnail text (1 to 3 words max)...")
         
         prompt_question = (
-            f"You are a YouTube thumbnail text designer. Given a topic, generate a maximum 3-word clickbait question "
-            f"that is highly intriguing and makes viewers want to click the thumbnail. "
-            f"Include a question mark. Keep it punchy and short. Examples:\n"
-            f"- Topic: '7 signs you are anxiously attached' -> 'Anxiously attached?'\n"
-            f"- Topic: 'how insulin resistance causes weight gain' -> 'Insulin resistant?'\n"
-            f"- Topic: 'the psychology of flow state' -> 'Flow state?'\n"
-            f"- Topic: 'is sugar toxic?' -> 'Sugar toxic?'\n\n"
-            f"Topic: '{topic}'\n"
-            f"3-Word Question:"
+            f"You are a top YouTube thumbnail designer. Given a video title or topic, generate a maximum 3-word "
+            f"clickbait text overlay (can be 1, 2, or 3 words total, NEVER exceed 3 words). "
+            f"It should be punchy, highly intriguing, and make viewers click. "
+            f"Question mark is optional.\n\n"
+            f"Examples:\n"
+            f"- Title: '7 signs you are anxiously attached' -> 'Anxious?'\n"
+            f"- Title: 'Why Do Predators Almost Always Attack From Behind?' -> 'Attacking From Behind?'\n"
+            f"- Title: 'How Insulin Resistance Causes Weight Gain' -> 'Insulin Resistant?'\n"
+            f"- Title: 'The Psychology of Flow State' -> 'Flow State'\n"
+            f"- Title: 'Is Sugar Toxic to Your Brain?' -> 'Toxic Sugar?'\n\n"
+            f"Video Title/Topic: '{source_context}'\n"
+            f"Max 3-Word Overlay Text:"
         )
         
-        # Use the primary client to generate the text content
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt_question,
         )
         if response and response.text:
-            generated = response.text.strip().strip('"').strip("'")
+            generated = response.text.strip().strip('"').strip("'").strip()
             words = generated.split()
-            if len(words) <= 4:  # Allowing up to 4 words just in case
-                question_text = generated
-                if not question_text.endswith("?"):
-                    question_text += "?"
-            if verbose:
-                print(f"   💡 Generated question text: '{question_text}'")
+            if words:
+                question_text = " ".join(words[:3])
+            if verbose and question_text:
+                print(f"   💡 Generated thumbnail text: '{question_text}'")
     except Exception as e:
         if verbose:
-            print(f"   ⚠️ Failed to generate 3-word clickbait question with Gemini: {e}. Using fallback: '{question_text}'")
+            print(f"   ⚠️ Failed to generate thumbnail text with Gemini: {e}. Using fallback: '{default_text}'")
 
-    # Use custom thumbnail text if provided, else fall back to LLM question
-    text_to_show = thumbnail_text if thumbnail_text else question_text
+    text_to_show = thumbnail_text or question_text or default_text
     if verbose and thumbnail_text:
         print(f"   ✍️ Using custom thumbnail text overwrite: '{text_to_show}'")
 
+    # Build 3 style-matched thumbnail variant prompts exploring different arrangements
+    if style == "stickman":
+        thumbnail_prompts = [
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Minimalist stickman cartoon style, solid clean white background. "
+                f"In the center, the text '{text_to_show}' is split across the middle in large bold black bubble letters with a simple minimalist hand-drawn black stick figure cartoon character "
+                f"positioned right in the center between the words, looking shocked and gesturing outward. "
+                f"No gradient, no complex background, high contrast, clean 2D layout."
+            ),
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Minimalist stickman cartoon style, solid clean white background. "
+                f"In the center, bold prominent text '{text_to_show}' is rendered in bright yellow text with a thick black outline. "
+                f"Standing next to or directly under the text is a simple minimalist hand-drawn black stick figure character scratching its head thoughtfully with a thought bubble. "
+                f"Clean 2D vector graphic, extremely simple, high contrast."
+            ),
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Minimalist stickman cartoon style, solid clean white background. "
+                f"In the middle of the frame, a simple minimalist hand-drawn black stick figure character with a wildly expressive surprised face reacts dramatically to huge bold text '{text_to_show}' "
+                f"displayed prominently in the center. Clean lines, flat colors, high contrast 2D comic illustration."
+            ),
+        ]
+    elif style == "chalkboard":
+        thumbnail_prompts = [
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Chalkboard style, dark forest green chalkboard background with subtle chalk dust texture. "
+                f"In the center, white and yellow chalk text '{text_to_show}' is written across the middle with a hand-drawn white chalk stick figure cartoon character "
+                f"drawn right in the center between the words, looking confused and gesturing. "
+                f"Authentic chalk dust strokes, high contrast visual composition."
+            ),
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Chalkboard style, dark green chalkboard canvas. "
+                f"Bold white chalk text overlay '{text_to_show}' is displayed at the top center. "
+                f"Standing beside a hand-drawn chalk diagram, a simple white chalk stick figure points enthusiastically at the key concept. "
+                f"Educational, high contrast, chalk-like strokes."
+            ),
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Chalkboard style, dark forest green chalkboard background. "
+                f"Large bold yellow chalk text '{text_to_show}' in the center with a white chalk stick figure character scratching its head thoughtfully under a chalk thought bubble. "
+                f"High contrast, educational, clean chalk illustration."
+            ),
+        ]
+    else:  # "color_whiteboard" or default fallback
+        thumbnail_prompts = [
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Color whiteboard animation style, clean solid white background. "
+                f"In the center, colorful marker outlines in blue, red, and yellow display the text '{text_to_show}' with a simple hand-drawn cartoon character in the middle looking shocked. "
+                f"High contrast, 2D illustration, clean marker outlines."
+            ),
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Color whiteboard animation style, clean white background. "
+                f"Bold prominent text '{text_to_show}' rendered in large colorful bubble letters. "
+                f"Next to the text, a hand-drawn cartoon character scratches its head in curiosity next to an educational sketch diagram. "
+                f"High contrast, minimalist, clean 2D layout."
+            ),
+            (
+                f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Color whiteboard animation style, clean white background. "
+                f"Large high-contrast text overlay '{text_to_show}' centered with an expressive hand-drawn cartoon character pointing toward the solution. "
+                f"Clean 2D educational illustration, high readability."
+            ),
+        ]
+
     thumbnails = []
-
-    thumbnail_prompts = [
-        # Variant 1: Whiteboard Cartoon / Stickman style
-        (
-            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Whiteboard cartoon illustration style, clean solid white background. "
-            f"In the center, a simple minimalist hand-drawn black stick figure cartoon character with a highly expressive face, looking confused and thinking, scratching its head. "
-            f"A thought bubble with a question mark. At the top, bold large yellow bubble text with a thick black outline showing exactly the words: '{text_to_show}'. "
-            f"Simple, high-contrast, extremely readable composition."
-        ),
-        # Variant 2: Chalkboard style
-        (
-            f"YouTube thumbnail in 16:9 aspect ratio, 1280x720. Chalkboard style, dark forest green chalkboard background with subtle chalk dust texture. "
-            f"In the center, a simple minimalist hand-drawn white chalk stick figure cartoon character looking confused and thinking, scratching its head. "
-            f"A thought bubble with a question mark. At the top, bold large yellow and white hand-drawn chalk text overlay showing exactly the words: '{text_to_show}'. "
-            f"High contrast, educational and highly engaging visual composition."
-        ),
-    ]
-
     for i in range(min(count, len(thumbnail_prompts))):
         if verbose:
-            print(f"  🖼️ Generating thumbnail variant {i + 1}/{count}...")
+            print(f"  🖼️ Generating thumbnail variant {i + 1}/{count} ({style} style)...")
 
         topic_slug = slugify(topic)
         thumb_path = output_dir / f"{topic_slug}_thumbnail_{i + 1:02d}.png"
@@ -690,6 +737,6 @@ def generate_thumbnail(
         time.sleep(2)
 
     if verbose:
-        print(f"✅ Generated {len(thumbnails)} thumbnail variants")
+        print(f"✅ Generated {len(thumbnails)} thumbnail variants ({style} style)")
 
     return thumbnails

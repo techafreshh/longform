@@ -127,25 +127,51 @@ def download_youtube_transcript(
         print(f"  📥 Fetching transcript for: '{video_title}' ({video_id})...")
 
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        
-        # Try fetching English transcripts (prefer manually created, fallback to auto-generated)
-        try:
-            transcript = transcript_list.find_transcript(['en'])
-        except Exception:
-            # Fallback: find any available language and translate it to english
+        data = None
+        # Safely try list_transcripts (class method or instance method)
+        transcript_list = None
+        if hasattr(YouTubeTranscriptApi, "list_transcripts"):
             try:
-                # Find any transcript
-                for t in transcript_list:
-                    if t.is_translatable:
-                        transcript = t.translate('en')
-                        break
-                else:
-                    transcript = next(iter(transcript_list))
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             except Exception:
-                raise ValueError("No translatable transcripts found.")
+                pass
+        
+        if transcript_list is None and hasattr(YouTubeTranscriptApi, "__init__"):
+            try:
+                api = YouTubeTranscriptApi()
+                if hasattr(api, "list_transcripts"):
+                    transcript_list = api.list_transcripts(video_id)
+            except Exception:
+                pass
 
-        data = transcript.fetch()
+        if transcript_list is not None:
+            try:
+                try:
+                    transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
+                except Exception:
+                    try:
+                        for t in transcript_list:
+                            if t.is_translatable:
+                                transcript = t.translate('en')
+                                break
+                        else:
+                            transcript = next(iter(transcript_list))
+                    except Exception:
+                        transcript = None
+
+                if transcript is not None:
+                    res = transcript.fetch()
+                    if isinstance(res, list):
+                        data = res
+            except Exception:
+                data = None
+
+        # Fallback to direct get_transcript if data could not be fetched via list_transcripts
+        if data is None or not isinstance(data, list):
+            try:
+                data = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US', 'en-GB'])
+            except Exception:
+                data = YouTubeTranscriptApi.get_transcript(video_id)
 
         # Merge short timeline segments into natural readable prose paragraphs
         lines = []

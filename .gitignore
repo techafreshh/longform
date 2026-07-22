@@ -21,3 +21,9 @@ working/
 # OS
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
+
+# Temp & Flow Work in Progress
+error.txt
+sample-run-output/
+src/flow_*

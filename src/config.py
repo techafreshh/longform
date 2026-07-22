@@ -41,6 +41,10 @@ FLOW_AGENT_URL = os.getenv("FLOW_AGENT_URL", "")  # e.g. "https://abc123.ngrok.i
 FLOW_IMAGE_ASPECT = os.getenv("FLOW_IMAGE_ASPECT", "landscape")  # "landscape", "portrait", "square"
 FLOW_REQUEST_DELAY = float(os.getenv("FLOW_REQUEST_DELAY", "3.0"))  # seconds between requests
 
+# Whisk API (primary Flow backend — direct API, no Chrome extension needed)
+WHISK_COOKIE = os.getenv("WHISK_COOKIE", "")  # Google account cookie from labs.google
+WHISK_OUTPUT_DIR = os.getenv("WHISK_OUTPUT_DIR", "./output")  # whisk-api default output
+
 
 
 
