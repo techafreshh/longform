@@ -25,6 +25,9 @@ from .config import (
 )
 
 
+import os
+from dotenv import load_dotenv
+
 # Aspect ratio mapping for whisk-api
 ASPECT_MAP = {
     "landscape": "LANDSCAPE",
@@ -33,9 +36,18 @@ ASPECT_MAP = {
 }
 
 
+def _get_whisk_cookie() -> str:
+    """Dynamically fetch WHISK_COOKIE from environment or reload .env."""
+    cookie = os.getenv("WHISK_COOKIE", "")
+    if not cookie:
+        load_dotenv(override=True)
+        cookie = os.getenv("WHISK_COOKIE", "")
+    return cookie.strip()
+
+
 def _get_backend() -> str:
     """Determine which backend to use: 'whisk' or 'flow-agent'."""
-    if WHISK_COOKIE:
+    if _get_whisk_cookie():
         return "whisk"
     if FLOW_AGENT_URL:
         return "flow-agent"
@@ -44,9 +56,10 @@ def _get_backend() -> str:
 
 def check_whisk_available(verbose: bool = True) -> bool:
     """Check if whisk-api CLI is installed and cookie is set."""
-    if not WHISK_COOKIE:
+    cookie = _get_whisk_cookie()
+    if not cookie:
         if verbose:
-            print("❌ WHISK_COOKIE not set in .env")
+            print("❌ WHISK_COOKIE not set in .env or os.environ")
         return False
 
     try:
@@ -143,7 +156,7 @@ def _generate_with_whisk(
         "whisk", "generate",
         "--prompt", prompt,
         "--aspect", whisk_aspect,
-        "--cookie", WHISK_COOKIE,
+        "--cookie", _get_whisk_cookie(),
         "--dir", str(temp_dir),
     ]
 
