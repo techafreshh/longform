@@ -42,7 +42,10 @@ def _get_whisk_cookie() -> str:
     if not cookie:
         load_dotenv(override=True)
         cookie = os.getenv("WHISK_COOKIE", "")
-    return cookie.strip()
+    cookie = cookie.strip()
+    if (cookie.startswith('"') and cookie.endswith('"')) or (cookie.startswith("'") and cookie.endswith("'")):
+        cookie = cookie[1:-1].strip()
+    return cookie
 
 
 def _get_backend() -> str:
@@ -145,6 +148,12 @@ def _generate_with_whisk(
     Returns:
         True if successful, False otherwise.
     """
+    cookie = _get_whisk_cookie()
+    if not cookie:
+        if verbose:
+            print("    ❌ WHISK_COOKIE is empty. Please set WHISK_COOKIE in .env or os.environ.")
+        return False
+
     whisk_aspect = ASPECT_MAP.get(aspect, "LANDSCAPE")
     temp_dir = Path(WHISK_OUTPUT_DIR)
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -156,7 +165,7 @@ def _generate_with_whisk(
         "whisk", "generate",
         "--prompt", prompt,
         "--aspect", whisk_aspect,
-        "--cookie", _get_whisk_cookie(),
+        "--cookie", cookie,
         "--dir", str(temp_dir),
     ]
 
