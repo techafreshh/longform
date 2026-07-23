@@ -19,6 +19,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 FISH_API_KEY = os.getenv("FISH_API_KEY", "")
 FISH_VOICE_ID = os.getenv("FISH_VOICE_ID", "")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
+SUPADATA_API_KEY = os.getenv("SUPADATA_API_KEY", "")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 

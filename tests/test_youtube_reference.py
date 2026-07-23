@@ -121,3 +121,28 @@ def test_download_youtube_transcript_fallback_get_transcript(tmp_path):
     finally:
         if orig_list is not None:
             yt_api_cls.list_transcripts = orig_list
+
+
+@patch("src.youtube_reference.SUPADATA_API_KEY", "fake_supadata_key")
+@patch("requests.get")
+def test_download_youtube_transcript_supadata(mock_get, tmp_path):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "lang": "en",
+        "content": [
+            {"text": "Supadata fetched transcript line 1.", "offset": 0, "duration": 1000},
+            {"text": "Supadata fetched transcript line 2.", "offset": 1000, "duration": 1000}
+        ]
+    }
+    mock_get.return_value = mock_response
+
+    dest_dir = tmp_path / "reference_scripts"
+    dest_path = download_youtube_transcript("supadata123", "Supadata Video", dest_dir, verbose=False)
+
+    assert dest_path is not None
+    assert dest_path.exists()
+    content = dest_path.read_text(encoding="utf-8")
+    assert "Supadata fetched transcript line 1." in content
+    mock_get.assert_called_once()
+    assert "x-api-key" in mock_get.call_args[1]["headers"]

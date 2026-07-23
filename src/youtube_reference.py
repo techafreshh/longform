@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 import requests
 
-from .config import slugify
+from .config import slugify, SUPADATA_API_KEY
 
 
 def search_youtube_videos(query: str, count: int = 3) -> list[dict]:
@@ -212,6 +212,40 @@ def _fetch_raw_transcript(video_id: str) -> Optional[list[dict]]:
     return None
 
 
+def _fetch_supadata_transcript(video_id: str, api_key: Optional[str] = None) -> Optional[list[dict]]:
+    """Fetch transcript using Supadata AI API (https://supadata.ai)."""
+    key = api_key or SUPADATA_API_KEY
+    if not key:
+        return None
+
+    headers = {"x-api-key": key}
+    urls_to_try = [
+        f"https://api.supadata.ai/v1/youtube/transcript?url=https://www.youtube.com/watch?v={video_id}",
+        f"https://api.supadata.ai/v1/transcript?url=https://www.youtube.com/watch?v={video_id}",
+    ]
+
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            if r.status_code == 200:
+                res_json = r.json()
+                content = res_json.get("content")
+                if isinstance(content, list) and len(content) > 0:
+                    return content
+                elif isinstance(content, str) and content.strip():
+                    return [{"text": content}]
+                elif "transcript" in res_json:
+                    t = res_json["transcript"]
+                    if isinstance(t, list) and len(t) > 0:
+                        return t
+                    elif isinstance(t, str) and t.strip():
+                        return [{"text": t}]
+        except Exception as e:
+            pass
+
+    return None
+
+
 def download_youtube_transcript(
     video_id: str,
     video_title: str,
@@ -220,6 +254,7 @@ def download_youtube_transcript(
 ) -> Optional[Path]:
     """
     Download the English transcript of a YouTube video and save it as text.
+    First tries Supadata API (if SUPADATA_API_KEY is configured), then falls back to scrapers.
     
     Args:
         video_id: YouTube video ID.
@@ -230,13 +265,6 @@ def download_youtube_transcript(
     Returns:
         Path to the saved file or None if it failed.
     """
-    try:
-        import youtube_transcript_api
-    except ImportError:
-        if verbose:
-            print("⚠️ youtube-transcript-api is not installed. Run 'pip install youtube-transcript-api'.")
-        return None
-
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Safe slug for file name
@@ -249,17 +277,37 @@ def download_youtube_transcript(
         print(f"  📥 Fetching transcript for: '{video_title}' ({video_id})...")
 
     try:
-        data = _fetch_raw_transcript(video_id)
+        data = None
+
+        # 1. Prefer Supadata API if key is available
+        if SUPADATA_API_KEY:
+            data = _fetch_supadata_transcript(video_id)
+            if data and verbose:
+                print(f"  ⚡ Successfully fetched transcript via Supadata API.")
+
+        # 2. Fallback to youtube-transcript-api scrapers
+        if not data:
+            data = _fetch_raw_transcript(video_id)
+
+        # 3. Secondary check for Supadata API if env variable set dynamically
+        if not data:
+            import os
+            key = os.getenv("SUPADATA_API_KEY", "")
+            if key and key != SUPADATA_API_KEY:
+                data = _fetch_supadata_transcript(video_id, api_key=key)
+
         if not data:
             if verbose:
-                print(f"  ⚠️ No transcript available or readable for video ID {video_id}.")
+                print(f"  ⚠️ Could not download transcript for {video_id}.")
+                if not SUPADATA_API_KEY:
+                    print("     💡 Tip: Set SUPADATA_API_KEY in your .env file for 100% reliable transcript fetching via Supadata.ai.")
             return None
 
         # Merge short timeline segments into natural readable prose paragraphs
         lines = []
         current_paragraph = []
         for entry in data:
-            text = entry.get("text", "").strip()
+            text = entry.get("text", "").strip() if isinstance(entry, dict) else str(entry).strip()
             # Clean up raw HTML subtitle encoding
             text = (
                 text.replace("&amp;", "&")
